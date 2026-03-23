@@ -1,5 +1,6 @@
 export type CleanupMethod = "blur" | "fill" | "crop";
 export type DetectionMode = "fixed" | "auto" | "hybrid";
+export type SizeHandlingMode = "relative" | "absolute" | "bottomRight";
 
 export type Region = {
   x: number;
@@ -40,6 +41,7 @@ export type BatchEntry = {
 
 export type BatchResult = {
   outputDir: string;
+  processedCount: number;
   successCount: number;
   failedCount: number;
   entries: BatchEntry[];
@@ -50,6 +52,7 @@ export type Template = {
   name: string;
   region: Region;
   cleanupMethod: CleanupMethod;
+  sizeHandlingMode: SizeHandlingMode;
   blurSigma: number;
   fillColor: string;
 };

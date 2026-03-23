@@ -7,3 +7,4 @@ src-tauri/target/
 
 # Local-only prototype references
 stitch/
+samples/
