@@ -7,6 +7,7 @@ LaMa ONNX Inpainting Script
 import sys
 import json
 import argparse
+import time
 from pathlib import Path
 
 try:
@@ -50,26 +51,35 @@ def inpaint(model_path, image_path, mask_path, output_path, target_size=(512, 51
         target_size: 目标尺寸 (width, height)
     """
     try:
+        t0 = time.time()
         # 加载模型
         session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
+        t1 = time.time()
+        print(f"[DEBUG] 模型加载耗时: {t1-t0:.2f}秒", file=sys.stderr)
 
         # 加载图像和 mask
+        t2 = time.time()
         image = load_image(image_path)
         mask = load_mask(mask_path)
+        t3 = time.time()
+        print(f"[DEBUG] 图像加载耗时: {t3-t2:.2f}秒", file=sys.stderr)
 
         h, w = image.shape[:2]
 
-        # 调试信息：原始图像和 mask 的统计信息
-        mask_nonzero = np.count_nonzero(mask)
-        mask_ratio = mask_nonzero / (h * w)
-        print(f"[DEBUG] 原始图像: {w}x{h}, Mask非零像素: {mask_nonzero}/{h*w} ({mask_ratio:.2%})", file=sys.stderr)
-
         # 调整大小到目标尺寸
+        t4 = time.time()
         image_resized = np.array(Image.fromarray((image * 255).astype(np.uint8)).resize(target_size, Image.LANCZOS)).astype(np.float32) / 255.0
         mask_resized = np.array(Image.fromarray((mask * 255).astype(np.uint8)).resize(target_size, Image.NEAREST)).astype(np.float32)
 
         # 确保mask是二值的（0或1）
         mask_resized = (mask_resized > 0.5).astype(np.float32)
+        t5 = time.time()
+        print(f"[DEBUG] 图像调整耗时: {t5-t4:.2f}秒", file=sys.stderr)
+
+        # 调试信息：原始图像和 mask 的统计信息
+        mask_nonzero = np.count_nonzero(mask)
+        mask_ratio = mask_nonzero / (h * w)
+        print(f"[DEBUG] 原始图像: {w}x{h}, Mask非零像素: {mask_nonzero}/{h*w} ({mask_ratio:.2%})", file=sys.stderr)
 
         # 调试信息：调整后的统计
         mask_resized_nonzero = np.count_nonzero(mask_resized)
@@ -91,15 +101,19 @@ def inpaint(model_path, image_path, mask_path, output_path, target_size=(512, 51
         print(f"[DEBUG] image_tensor形状: {image_tensor.shape}, mask_tensor形状: {mask_tensor.shape}", file=sys.stderr)
 
         # 运行推理
+        t6 = time.time()
         inputs = {
             input_names[0]: image_tensor.astype(np.float32),
             input_names[1]: mask_tensor.astype(np.float32),
         }
 
         result = session.run(output_names, inputs)
+        t7 = time.time()
+        print(f"[DEBUG] 模型推理耗时: {t7-t6:.2f}秒", file=sys.stderr)
         output = result[0]  # [1, 3, H, W]
 
         # 转换回图像
+        t8 = time.time()
         output_img = output[0].transpose(1, 2, 0)  # [H, W, 3]
 
         print(f"[DEBUG] 模型输出范围: [{output_img.min():.3f}, {output_img.max():.3f}]", file=sys.stderr)
@@ -127,6 +141,9 @@ def inpaint(model_path, image_path, mask_path, output_path, target_size=(512, 51
 
         # 保存结果
         output_img.save(output_path)
+        t9 = time.time()
+        print(f"[DEBUG] 输出处理耗时: {t9-t8:.2f}秒", file=sys.stderr)
+        print(f"[DEBUG] 总耗时: {t9-t0:.2f}秒", file=sys.stderr)
 
         return True, None
 

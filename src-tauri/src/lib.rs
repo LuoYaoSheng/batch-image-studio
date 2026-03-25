@@ -1,4 +1,5 @@
 mod model_runtime;
+mod onnx_server;
 
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
@@ -15,6 +16,7 @@ use std::{
   path::{Path, PathBuf},
   time::{SystemTime, UNIX_EPOCH},
 };
+use tauri::Manager;
 use texture_synthesis as ts;
 // tract_onnx 不再使用，改用 Python onnxruntime
 use walkdir::WalkDir;
@@ -1393,9 +1395,11 @@ fn apply_cleanup(
   cleanup_method: &str,
   blur_sigma: f32,
   fill_color: &str,
+  fast_mode: bool,  // 快速模式：跳过ONNX，仅用于预览
 ) -> Result<DynamicImage> {
-  log::info!("apply_cleanup: engine={:?}, cleanup_method={}", engine, cleanup_method);
-  if engine == model_runtime::CleanupEngineKind::EmbeddedOnnx && cleanup_method == "blur" {
+  log::info!("apply_cleanup: engine={:?}, cleanup_method={}, fast_mode={}", engine, cleanup_method, fast_mode);
+  // 只在非快速模式下使用 ONNX 模型
+  if engine == model_runtime::CleanupEngineKind::EmbeddedOnnx && cleanup_method == "blur" && !fast_mode {
     log::info!("使用 ONNX 模型进行修复");
     if let Some(app) = app {
       if let Ok(processed) = apply_embedded_model_cleanup(
@@ -1517,7 +1521,7 @@ fn apply_embedded_model_cleanup(
   base_width: u32,
   base_height: u32,
   size_handling_mode: &str,
-  repair_strength: f32,
+  _repair_strength: f32,  // ONNX 模型不使用此参数
 ) -> Result<DynamicImage> {
   log::info!("apply_embedded_model_cleanup: 开始加载内置模型");
   let bundled_model = model_runtime::resolve_bundled_model(app)?
@@ -1553,22 +1557,18 @@ fn apply_embedded_model_cleanup(
     }
   }
 
-  run_onnx_inpainting(image, &repair_mask, Path::new(&bundled_model.model_path), input_w, input_h)
+  run_onnx_inpainting(app, image, &repair_mask, &bundled_model.model_path, input_w, input_h)
 }
 
 fn run_onnx_inpainting(
+  app: &tauri::AppHandle,
   image: &DynamicImage,
   mask: &GrayImage,
-  model_path: &Path,
+  model_path: &str,
   input_w: u32,
   input_h: u32,
 ) -> Result<DynamicImage> {
-  use std::io::Write;
-  use std::process::Command;
-
-  log::info!("run_onnx_inpainting: 使用 Python ONNX Runtime");
-  log::info!("原始图像大小: {}x{}, mask 大小: {}x{}",
-    image.width(), image.height(), mask.width(), mask.height());
+  log::info!("run_onnx_inpainting: 使用 Python ONNX Server");
 
   // 创建临时目录
   let temp_dir = std::env::temp_dir().join("lama_inpaint");
@@ -1591,56 +1591,17 @@ fn run_onnx_inpainting(
 
   log::info!("临时文件已保存");
 
-  // 获取脚本路径 - 在开发模式下使用项目中的脚本
-  let script_path = if cfg!(debug_assertions) {
-    // 开发模式：从可执行文件向上找到项目根目录
-    std::env::current_exe()?
-      .ancestors()
-      .find(|a| a.join("src-tauri").join("scripts").exists())
-      .map(|p| p.join("src-tauri").join("scripts").join("lama_inpaint.py"))
-      .unwrap_or_else(|| PathBuf::from("src-tauri/scripts/lama_inpaint.py"))
-  } else {
-    // 生产模式：使用资源目录中的脚本
-    std::env::current_exe()?
-      .parent()
-      .map(|p| p.join("scripts").join("lama_inpaint.py"))
-      .unwrap_or_else(|| PathBuf::from("scripts/lama_inpaint.py"))
-  };
+  // 获取 ONNX 服务器状态
+  let server_manager = app.state::<onnx_server::OnnxServerManager>();
 
-  log::info!("脚本路径: {:?}", script_path);
-  log::info!("模型路径: {:?}", model_path);
+  // 获取或创建服务器实例
+  let mut server_guard = server_manager.get_or_create(model_path)?;
+  let server = server_guard.as_mut().ok_or_else(|| anyhow!("服务器不可用"))?;
 
-  // 调用 Python 脚本
-  let output = Command::new("python3")
-    .arg(&script_path)
-    .arg("--model")
-    .arg(model_path)
-    .arg("--image")
-    .arg(&image_path)
-    .arg("--mask")
-    .arg(&mask_path)
-    .arg("--output")
-    .arg(&output_path)
-    .arg("--size")
-    .arg(format!("{}", input_w))
-    .arg(format!("{}", input_h))
-    .output()
-    .with_context(|| "Python 脚本执行失败")?;
-
-  // 记录 stderr 输出（包含调试信息）
-  let stderr = String::from_utf8_lossy(&output.stderr);
-  if !stderr.is_empty() {
-    for line in stderr.lines() {
-      log::info!("[Python] {}", line);
-    }
-  }
-
-  if !output.status.success() {
-    log::error!("Python 脚本错误: {}", stderr);
-    return Err(anyhow!("Python 脚本执行失败: {}", stderr));
-  }
-
-  log::info!("Python 脚本执行成功");
+  // 使用长驻留服务器处理请求
+  log::info!("发送请求到 ONNX 服务器");
+  server.inpaint(&image_path, &mask_path, &output_path, (input_w, input_h))?;
+  log::info!("ONNX 服务器处理完成");
 
   // 读取输出图像
   let result = image::open(&output_path)
@@ -1755,6 +1716,7 @@ fn preview_cleanup(app: tauri::AppHandle, request: PreviewRequest) -> Result<Pre
     &request.cleanup_method,
     request.blur_sigma,
     &request.fill_color,
+    false,  // 预览也需要使用ONNX显示实际效果
   )
   .map_err(|err| err.to_string())?;
   let mask_image = if request.cleanup_method == "blur" {
@@ -1764,9 +1726,10 @@ fn preview_cleanup(app: tauri::AppHandle, request: PreviewRequest) -> Result<Pre
     draw_region_overlay(&image, request.region)
   };
 
-  let source_preview = preview_image(&source, 1400);
-  let processed_preview = preview_image(&processed, 1400);
-  let mask_preview = preview_image(&mask_image, 1400);
+  // 减小预览尺寸以提高编码速度 (从1400降到600)
+  let source_preview = preview_image(&source, 600);
+  let processed_preview = preview_image(&processed, 600);
+  let mask_preview = preview_image(&mask_image, 600);
 
   Ok(PreviewResult {
     source_data_url: encode_jpeg_data_url(&source_preview, 82).map_err(|err| err.to_string())?,
@@ -1808,6 +1771,7 @@ fn run_batch_cleanup(app: tauri::AppHandle, request: BatchRequest) -> Result<Bat
         &request.cleanup_method,
         request.blur_sigma,
         &request.fill_color,
+        false,  // fast_mode: 批量处理时使用ONNX高质量模式
       )?;
       processed.save(&output_path)?;
       Ok(())
@@ -1855,6 +1819,7 @@ pub fn run() {
       run_batch_cleanup
     ])
     .plugin(tauri_plugin_dialog::init())
+    .manage(onnx_server::OnnxServerManager::new())
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(
