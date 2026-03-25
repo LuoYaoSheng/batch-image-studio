@@ -1,10 +1,13 @@
+mod model_runtime;
+
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use image::{
   codecs::{jpeg::JpegEncoder, png::PngEncoder},
   imageops::{self, FilterType},
-  ColorType, DynamicImage, GenericImageView, ImageEncoder, Rgba, RgbaImage,
+  ColorType, DynamicImage, GenericImageView, GrayImage, ImageEncoder, Luma, Rgba, RgbaImage,
 };
+use inpaint::prelude::ImageInpaint;
 use serde::{Deserialize, Serialize};
 use std::{
   collections::HashSet,
@@ -12,6 +15,8 @@ use std::{
   path::{Path, PathBuf},
   time::{SystemTime, UNIX_EPOCH},
 };
+use texture_synthesis as ts;
+// tract_onnx 不再使用，改用 Python onnxruntime
 use walkdir::WalkDir;
 
 #[derive(Serialize)]
@@ -84,6 +89,7 @@ struct BatchRequest {
 struct PreviewResult {
   source_data_url: String,
   processed_data_url: String,
+  mask_data_url: String,
   output_width: u32,
   output_height: u32,
 }
@@ -105,6 +111,11 @@ struct BatchResult {
   success_count: usize,
   failed_count: usize,
   entries: Vec<BatchEntry>,
+}
+
+#[tauri::command]
+fn runtime_status(app: tauri::AppHandle) -> Result<model_runtime::RuntimeStatus, String> {
+  model_runtime::resolve_runtime_status(&app).map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -189,6 +200,15 @@ fn encode_png_data_url(image: &DynamicImage) -> Result<String> {
   encoder.write_image(&rgba, width, height, ColorType::Rgba8.into())?;
 
   Ok(format!("data:image/png;base64,{}", BASE64.encode(bytes)))
+}
+
+fn encode_png_bytes(image: &DynamicImage) -> Result<Vec<u8>> {
+  let rgba = image.to_rgba8();
+  let (width, height) = rgba.dimensions();
+  let mut bytes = Vec::new();
+  let encoder = PngEncoder::new(&mut bytes);
+  encoder.write_image(&rgba, width, height, ColorType::Rgba8.into())?;
+  Ok(bytes)
 }
 
 fn encode_jpeg_data_url(image: &DynamicImage, quality: u8) -> Result<String> {
@@ -359,84 +379,66 @@ fn average_border_color(image: &RgbaImage, x: u32, y: u32, w: u32, h: u32) -> Rg
   ])
 }
 
-fn sample_rgba(image: &RgbaImage, x: u32, y: u32) -> [f32; 4] {
-  let p = image.get_pixel(
-    x.min(image.width().saturating_sub(1)),
-    y.min(image.height().saturating_sub(1)),
-  );
-  [p[0] as f32, p[1] as f32, p[2] as f32, p[3] as f32]
-}
+fn build_context_patch(image: &DynamicImage, x: u32, y: u32, w: u32, h: u32) -> DynamicImage {
+  let (img_w, img_h) = image.dimensions();
+  let right_gap = img_w.saturating_sub(x.saturating_add(w));
+  let bottom_gap = img_h.saturating_sub(y.saturating_add(h));
+  let near_right = right_gap <= w / 2;
+  let near_bottom = bottom_gap <= h / 2;
 
-fn lerp_rgba(a: [f32; 4], b: [f32; 4], t: f32) -> [f32; 4] {
-  [
-    a[0] + (b[0] - a[0]) * t,
-    a[1] + (b[1] - a[1]) * t,
-    a[2] + (b[2] - a[2]) * t,
-    a[3] + (b[3] - a[3]) * t,
-  ]
-}
+  let left_patch = if x >= w {
+    Some(image.crop_imm(x - w, y, w, h).to_rgba8())
+  } else {
+    None
+  };
+  let top_patch = if y >= h {
+    Some(image.crop_imm(x, y - h, w, h).to_rgba8())
+  } else {
+    None
+  };
 
-fn synthesize_inpaint_patch(image: &DynamicImage, x: u32, y: u32, w: u32, h: u32) -> RgbaImage {
-  let source = image.to_rgba8();
-  let mut patch = RgbaImage::new(w, h);
-  let img_w = source.width();
-  let img_h = source.height();
+  if near_right || near_bottom {
+    match (left_patch, top_patch) {
+      (Some(left), Some(top)) => {
+        let mut merged = RgbaImage::new(w, h);
+        for py in 0..h {
+          let v = if h <= 1 { 0.0 } else { py as f32 / (h - 1) as f32 };
+          for px in 0..w {
+            let u = if w <= 1 { 0.0 } else { px as f32 / (w - 1) as f32 };
+            let left_px = left.get_pixel(px, py).0;
+            let top_px = top.get_pixel(px, py).0;
+            let left_weight = if near_right { 0.74 - u * 0.22 } else { 0.52 - u * 0.08 };
+            let top_weight = if near_bottom { 0.66 - v * 0.18 } else { 0.48 - v * 0.08 };
+            let total = (left_weight + top_weight).max(0.01);
 
-  let left_x = x.saturating_sub(1);
-  let right_x = (x + w).min(img_w.saturating_sub(1));
-  let top_y = y.saturating_sub(1);
-  let bottom_y = (y + h).min(img_h.saturating_sub(1));
-
-  for py in 0..h {
-    let v = if h <= 1 { 0.0 } else { py as f32 / (h - 1) as f32 };
-    let sample_y = (y + py).min(img_h.saturating_sub(1));
-
-    for px in 0..w {
-      let u = if w <= 1 { 0.0 } else { px as f32 / (w - 1) as f32 };
-      let sample_x = (x + px).min(img_w.saturating_sub(1));
-      let left_px = sample_rgba(&source, left_x, sample_y);
-      let right_px = sample_rgba(&source, right_x, sample_y);
-      let top_px = sample_rgba(&source, sample_x, top_y);
-      let bottom_px = sample_rgba(&source, sample_x, bottom_y);
-
-      let horizontal = lerp_rgba(left_px, right_px, u);
-      let vertical = lerp_rgba(top_px, bottom_px, v);
-      let mixed = lerp_rgba(horizontal, vertical, 0.5);
-      patch.put_pixel(
-        px,
-        py,
-        Rgba([
-          mixed[0].round() as u8,
-          mixed[1].round() as u8,
-          mixed[2].round() as u8,
-          255,
-        ]),
-      );
+            merged.put_pixel(
+              px,
+              py,
+              Rgba([
+                ((left_px[0] as f32 * left_weight + top_px[0] as f32 * top_weight) / total)
+                  .round() as u8,
+                ((left_px[1] as f32 * left_weight + top_px[1] as f32 * top_weight) / total)
+                  .round() as u8,
+                ((left_px[2] as f32 * left_weight + top_px[2] as f32 * top_weight) / total)
+                  .round() as u8,
+                255,
+              ]),
+            );
+          }
+        }
+        return DynamicImage::ImageRgba8(merged);
+      }
+      (Some(left), None) => return DynamicImage::ImageRgba8(left),
+      (None, Some(top)) => return DynamicImage::ImageRgba8(top),
+      (None, None) => {}
     }
   }
 
-  patch
-}
-
-fn build_context_patch(image: &DynamicImage, x: u32, y: u32, w: u32, h: u32) -> DynamicImage {
-  let (img_w, img_h) = image.dimensions();
-  let mut candidates: Vec<(u32, DynamicImage)> = Vec::new();
-
-  if y >= h {
-    candidates.push((w * h, image.crop_imm(x, y - h, w, h)));
-  }
   if y.saturating_add(h * 2) <= img_h {
-    candidates.push((w * h, image.crop_imm(x, y + h, w, h)));
-  }
-  if x >= w {
-    candidates.push((w * h, image.crop_imm(x - w, y, w, h)));
+    return image.crop_imm(x, y + h, w, h).resize_exact(w, h, FilterType::Triangle);
   }
   if x.saturating_add(w * 2) <= img_w {
-    candidates.push((w * h, image.crop_imm(x + w, y, w, h)));
-  }
-
-  if let Some((_, patch)) = candidates.into_iter().max_by_key(|(area, _)| *area) {
-    return patch.resize_exact(w, h, FilterType::Triangle);
+    return image.crop_imm(x + w, y, w, h).resize_exact(w, h, FilterType::Triangle);
   }
 
   let avg = average_border_color(&image.to_rgba8(), x, y, w, h);
@@ -449,11 +451,883 @@ fn build_context_patch(image: &DynamicImage, x: u32, y: u32, w: u32, h: u32) -> 
   DynamicImage::ImageRgba8(fill)
 }
 
-fn blend_patch(
+fn build_corner_reflect_patch(image: &DynamicImage, x: u32, y: u32, w: u32, h: u32) -> RgbaImage {
+  let source = image.to_rgba8();
+  let mut patch = RgbaImage::new(w, h);
+  let max_x = source.width().saturating_sub(1);
+  let max_y = source.height().saturating_sub(1);
+  let left_edge = x.saturating_sub(1).min(max_x);
+  let top_edge = y.saturating_sub(1).min(max_y);
+
+  for py in 0..h {
+    let reflect_y = top_edge.saturating_sub(py);
+    let vertical_weight = 0.58 - (py as f32 / h.max(1) as f32) * 0.16;
+
+    for px in 0..w {
+      let reflect_x = left_edge.saturating_sub(px);
+      let horizontal_weight = 0.72 - (px as f32 / w.max(1) as f32) * 0.18;
+      let total = (horizontal_weight + vertical_weight).max(0.01);
+
+      let left_px = source.get_pixel(reflect_x, (y + py).min(max_y)).0;
+      let top_px = source.get_pixel((x + px).min(max_x), reflect_y).0;
+
+      patch.put_pixel(
+        px,
+        py,
+        Rgba([
+          ((left_px[0] as f32 * horizontal_weight + top_px[0] as f32 * vertical_weight) / total)
+            .round() as u8,
+          ((left_px[1] as f32 * horizontal_weight + top_px[1] as f32 * vertical_weight) / total)
+            .round() as u8,
+          ((left_px[2] as f32 * horizontal_weight + top_px[2] as f32 * vertical_weight) / total)
+            .round() as u8,
+          255,
+        ]),
+      );
+    }
+  }
+
+  patch
+}
+
+fn color_diff(a: [u8; 4], b: [u8; 4]) -> f32 {
+  let dr = a[0] as f32 - b[0] as f32;
+  let dg = a[1] as f32 - b[1] as f32;
+  let db = a[2] as f32 - b[2] as f32;
+  (dr * dr + dg * dg + db * db).sqrt()
+}
+
+fn luminance(px: [u8; 4]) -> f32 {
+  0.299 * px[0] as f32 + 0.587 * px[1] as f32 + 0.114 * px[2] as f32
+}
+
+fn saturation(px: [u8; 4]) -> f32 {
+  let max = px[0].max(px[1]).max(px[2]) as f32;
+  let min = px[0].min(px[1]).min(px[2]) as f32;
+  max - min
+}
+
+fn local_luma_contrast(image: &RgbaImage, x: u32, y: u32) -> f32 {
+  let (width, height) = image.dimensions();
+  let center = luminance(image.get_pixel(x, y).0);
+  let start_x = x.saturating_sub(1);
+  let start_y = y.saturating_sub(1);
+  let end_x = (x + 1).min(width.saturating_sub(1));
+  let end_y = (y + 1).min(height.saturating_sub(1));
+  let mut strongest = 0.0f32;
+
+  for yy in start_y..=end_y {
+    for xx in start_x..=end_x {
+      if xx == x && yy == y {
+        continue;
+      }
+      let neighbor = luminance(image.get_pixel(xx, yy).0);
+      strongest = strongest.max((center - neighbor).abs());
+    }
+  }
+
+  strongest
+}
+
+fn merge_mask(base: &mut GrayImage, extra: &GrayImage) {
+  let (width, height) = base.dimensions();
+  for y in 0..height {
+    for x in 0..width {
+      if extra.get_pixel(x, y)[0] > 0 {
+        base.put_pixel(x, y, Luma([255]));
+      }
+    }
+  }
+}
+
+fn count_mask_pixels(mask: &GrayImage, x: u32, y: u32, w: u32, h: u32) -> u32 {
+  let (width, height) = mask.dimensions();
+  let mut total = 0u32;
+
+  for py in y..y.saturating_add(h).min(height) {
+    for px in x..x.saturating_add(w).min(width) {
+      if mask.get_pixel(px, py)[0] > 0 {
+        total += 1;
+      }
+    }
+  }
+
+  total
+}
+
+fn mask_stats(source: &RgbaImage, estimate: &RgbaImage, mask: &GrayImage) -> (u32, f32, f32) {
+  let (width, height) = mask.dimensions();
+  let mut count = 0u32;
+  let mut edge_sum = 0.0f32;
+  let mut diff_sum = 0.0f32;
+
+  for y in 0..height {
+    for x in 0..width {
+      if mask.get_pixel(x, y)[0] == 0 {
+        continue;
+      }
+      count += 1;
+      edge_sum += local_luma_contrast(source, x, y);
+      diff_sum += color_diff(source.get_pixel(x, y).0, estimate.get_pixel(x, y).0);
+    }
+  }
+
+  if count == 0 {
+    return (0, 0.0, 0.0);
+  }
+
+  (count, edge_sum / count as f32, diff_sum / count as f32)
+}
+
+fn apply_estimate_patch(
+  original_patch: &RgbaImage,
+  estimate_patch: &RgbaImage,
+  repair_mask: &GrayImage,
+  text_core_mask: &GrayImage,
+) -> RgbaImage {
+  let (width, height) = original_patch.dimensions();
+  let mut patch = original_patch.clone();
+  let repair_edge_mask = dilate_mask(repair_mask, 3, 2);
+  let text_edge_mask = dilate_mask(text_core_mask, 4, 2);
+
+  for y in 0..height {
+    for x in 0..width {
+      let repair_value = repair_mask.get_pixel(x, y)[0];
+      let repair_edge_value = repair_edge_mask.get_pixel(x, y)[0];
+      let text_edge_value = text_edge_mask.get_pixel(x, y)[0];
+      if repair_edge_value == 0 && text_edge_value == 0 {
+        continue;
+      }
+
+      let alpha = if repair_value > 0 {
+        1.0
+      } else if text_edge_value > 0 {
+        0.9
+      } else {
+        0.6
+      };
+      let original = patch.get_pixel(x, y).0;
+      let estimated = estimate_patch.get_pixel(x, y).0;
+      patch.put_pixel(
+        x,
+        y,
+        Rgba([
+          (original[0] as f32 * (1.0 - alpha) + estimated[0] as f32 * alpha).round() as u8,
+          (original[1] as f32 * (1.0 - alpha) + estimated[1] as f32 * alpha).round() as u8,
+          (original[2] as f32 * (1.0 - alpha) + estimated[2] as f32 * alpha).round() as u8,
+          255,
+        ]),
+      );
+    }
+  }
+
+  patch
+}
+
+fn fill_mask_rect(mask: &mut GrayImage, x: u32, y: u32, w: u32, h: u32) {
+  let (width, height) = mask.dimensions();
+  for py in y..y.saturating_add(h).min(height) {
+    for px in x..x.saturating_add(w).min(width) {
+      mask.put_pixel(px, py, Luma([255]));
+    }
+  }
+}
+
+fn build_doubao_text_mask(
+  source: &RgbaImage,
+  estimate: &RgbaImage,
+  core_x: u32,
+  core_y: u32,
+  core_w: u32,
+  core_h: u32,
+  overlay_like: bool,
+) -> GrayImage {
+  let (width, height) = source.dimensions();
+  let mut text_mask = GrayImage::new(width, height);
+  let band_x = core_x.saturating_add((core_w as f32 * 0.42).round() as u32);
+  let band_y = core_y.saturating_add((core_h as f32 * 0.46).round() as u32);
+  let band_w = ((core_w as f32 * 0.58).round() as u32).max(1);
+  let band_h = ((core_h as f32 * 0.54).round() as u32).max(1);
+  let mut cumulative_diff = 0.0f32;
+  let mut cumulative_edge = 0.0f32;
+  let mut sample_count = 0u32;
+
+  for py in band_y..band_y.saturating_add(band_h).min(height) {
+    for px in band_x..band_x.saturating_add(band_w).min(width) {
+      let src = source.get_pixel(px, py).0;
+      let est = estimate.get_pixel(px, py).0;
+      let diff = color_diff(src, est);
+      let lum = luminance(src);
+      let lum_delta = lum - luminance(est);
+      let sat = saturation(src);
+      let edge = local_luma_contrast(source, px, py);
+      cumulative_diff += diff;
+      cumulative_edge += edge;
+      sample_count += 1;
+
+      let bright_stroke = lum >= if overlay_like { 132.0 } else { 145.0 }
+        && sat <= 170.0
+        && edge >= if overlay_like { 8.0 } else { 12.0 }
+        && (diff >= if overlay_like { 5.0 } else { 8.0 } || lum_delta >= 4.0);
+      let dark_stroke = lum <= if overlay_like { 148.0 } else { 128.0 }
+        && sat <= 126.0
+        && edge >= if overlay_like { 8.0 } else { 12.0 }
+        && (diff >= if overlay_like { 5.0 } else { 8.0 } || lum_delta <= -4.0);
+      let neutral_stroke = sat <= 112.0
+        && edge >= if overlay_like { 10.0 } else { 14.0 }
+        && diff >= if overlay_like { 6.0 } else { 9.0 };
+
+      if bright_stroke || dark_stroke || neutral_stroke {
+        text_mask.put_pixel(px, py, Luma([255]));
+      }
+    }
+  }
+
+  let hits = count_mask_pixels(&text_mask, band_x, band_y, band_w, band_h);
+  let mut final_mask = dilate_mask(&text_mask, 5, 2);
+  let avg_diff = if sample_count == 0 {
+    0.0
+  } else {
+    cumulative_diff / sample_count as f32
+  };
+  let avg_edge = if sample_count == 0 {
+    0.0
+  } else {
+    cumulative_edge / sample_count as f32
+  };
+  let likely_flat_background = avg_edge <= 9.0 && avg_diff <= if overlay_like { 9.0 } else { 13.0 };
+
+  if hits < (band_w.saturating_mul(band_h) / 42).max(14) {
+    for py in band_y..band_y.saturating_add(band_h).min(height) {
+      for px in band_x..band_x.saturating_add(band_w).min(width) {
+        let src = source.get_pixel(px, py).0;
+        let est = estimate.get_pixel(px, py).0;
+        let sat = saturation(src);
+        let edge = local_luma_contrast(source, px, py);
+        let diff = color_diff(src, est);
+        let lum_delta = (luminance(src) - luminance(est)).abs();
+
+        if sat <= 154.0 && edge >= 8.0 && (diff >= 5.0 || lum_delta >= 4.0) {
+          final_mask.put_pixel(px, py, Luma([255]));
+        }
+      }
+    }
+
+    final_mask = dilate_mask(&final_mask, 7, 3);
+  }
+
+  let recovered_hits = count_mask_pixels(&final_mask, band_x, band_y, band_w, band_h);
+  if recovered_hits < (band_w.saturating_mul(band_h) / 18).max(24) && likely_flat_background {
+    let fallback_x = core_x.saturating_add((core_w as f32 * 0.34).round() as u32);
+    let fallback_y = core_y.saturating_add((core_h as f32 * 0.34).round() as u32);
+    let fallback_w = ((core_w as f32 * 0.64).round() as u32).max(1);
+    let fallback_h = ((core_h as f32 * 0.64).round() as u32).max(1);
+    fill_mask_rect(&mut final_mask, fallback_x, fallback_y, fallback_w, fallback_h);
+    final_mask = dilate_mask(&final_mask, 3, 2);
+  }
+
+  final_mask
+}
+
+fn dilate_mask(mask: &GrayImage, radius_x: u32, radius_y: u32) -> GrayImage {
+  if radius_x == 0 && radius_y == 0 {
+    return mask.clone();
+  }
+
+  let (width, height) = mask.dimensions();
+  let mut output = GrayImage::new(width, height);
+
+  for y in 0..height {
+    for x in 0..width {
+      let start_x = x.saturating_sub(radius_x);
+      let start_y = y.saturating_sub(radius_y);
+      let end_x = (x + radius_x).min(width.saturating_sub(1));
+      let end_y = (y + radius_y).min(height.saturating_sub(1));
+      let mut active = false;
+
+      'scan: for yy in start_y..=end_y {
+        for xx in start_x..=end_x {
+          if mask.get_pixel(xx, yy)[0] > 0 {
+            active = true;
+            break 'scan;
+          }
+        }
+      }
+
+      if active {
+        output.put_pixel(x, y, Luma([255]));
+      }
+    }
+  }
+
+  output
+}
+
+fn erode_mask(mask: &GrayImage, radius_x: u32, radius_y: u32) -> GrayImage {
+  if radius_x == 0 && radius_y == 0 {
+    return mask.clone();
+  }
+
+  let (width, height) = mask.dimensions();
+  let mut output = GrayImage::new(width, height);
+
+  for y in 0..height {
+    for x in 0..width {
+      if mask.get_pixel(x, y)[0] == 0 {
+        continue;
+      }
+
+      let start_x = x.saturating_sub(radius_x);
+      let start_y = y.saturating_sub(radius_y);
+      let end_x = (x + radius_x).min(width.saturating_sub(1));
+      let end_y = (y + radius_y).min(height.saturating_sub(1));
+      let mut keep = true;
+
+      'scan: for yy in start_y..=end_y {
+        for xx in start_x..=end_x {
+          if mask.get_pixel(xx, yy)[0] == 0 {
+            keep = false;
+            break 'scan;
+          }
+        }
+      }
+
+      if keep {
+        output.put_pixel(x, y, Luma([255]));
+      }
+    }
+  }
+
+  output
+}
+
+fn build_watermark_mask(
+  source: &RgbaImage,
+  estimate: &RgbaImage,
+  core_x: u32,
+  core_y: u32,
+  core_w: u32,
+  core_h: u32,
+  repair_strength: f32,
+) -> GrayImage {
+  let (width, height) = source.dimensions();
+  let mut mask = GrayImage::new(width, height);
+  let mut high_diff_count = 0u32;
+  let core_area = core_w.saturating_mul(core_h).max(1);
+  let expand_x = (core_w / 6).max(6);
+  let expand_y = (core_h / 4).max(8);
+  let focus_start_x = core_x.saturating_add((core_w as f32 * 0.16).round() as u32);
+  let focus_start_y = core_y.saturating_add((core_h as f32 * 0.14).round() as u32);
+  let text_focus_x = core_x.saturating_add((core_w as f32 * 0.24).round() as u32);
+  let text_focus_y = core_y.saturating_add((core_h as f32 * 0.22).round() as u32);
+
+  for py in core_y..core_y.saturating_add(core_h).min(height) {
+    for px in core_x..core_x.saturating_add(core_w).min(width) {
+      let src = source.get_pixel(px, py).0;
+      let est = estimate.get_pixel(px, py).0;
+      if color_diff(src, est) > 34.0 {
+        high_diff_count += 1;
+      }
+    }
+  }
+
+  let overlay_like = high_diff_count as f32 / core_area as f32 > 0.18;
+  let base_diff = if overlay_like { 16.0 } else { 28.0 };
+  let bright_diff = if overlay_like { 10.0 } else { 18.0 };
+  let text_stroke_mask =
+    build_doubao_text_mask(source, estimate, core_x, core_y, core_w, core_h, overlay_like);
+
+  for py in 0..height {
+    for px in 0..width {
+      let in_core = px >= core_x
+        && px < core_x.saturating_add(core_w)
+        && py >= core_y
+        && py < core_y.saturating_add(core_h);
+      let near_core = px >= core_x.saturating_sub(expand_x)
+        && px < core_x.saturating_add(core_w).saturating_add(expand_x).min(width)
+        && py >= core_y.saturating_sub(expand_y)
+        && py < core_y.saturating_add(core_h).saturating_add(expand_y).min(height);
+
+      if !in_core && !near_core {
+        continue;
+      }
+
+      let src = source.get_pixel(px, py).0;
+      let est = estimate.get_pixel(px, py).0;
+      let diff = color_diff(src, est);
+      let lum = luminance(src);
+      let est_lum = luminance(est);
+      let lum_delta = lum - est_lum;
+      let sat = saturation(src);
+      let focus_zone = px >= focus_start_x && py >= focus_start_y;
+      let text_focus_zone = px >= text_focus_x && py >= text_focus_y;
+      let likely_text = lum_delta >= if overlay_like { 12.0 } else { 22.0 } && sat <= 110.0;
+      let likely_shadow = lum_delta <= if overlay_like { -10.0 } else { -18.0 } && sat <= 72.0;
+      let likely_overlay_block = diff >= if overlay_like { 18.0 } else { 30.0 } && sat <= 92.0;
+      let likely_bright_text =
+        text_focus_zone && lum >= 148.0 && sat <= 150.0 && diff >= if overlay_like { 9.0 } else { 14.0 };
+      let likely_dark_text =
+        text_focus_zone && lum_delta <= if overlay_like { -8.0 } else { -14.0 } && diff >= 10.0 && sat <= 96.0;
+
+      let is_watermark = (in_core && focus_zone && (likely_text || likely_shadow || likely_overlay_block))
+        || (in_core && (likely_bright_text || likely_dark_text))
+        || (in_core && focus_zone && lum >= 176.0 && sat <= 92.0 && diff >= bright_diff)
+        || (near_core && focus_zone && diff >= base_diff + 18.0 && sat <= 76.0);
+
+      if is_watermark {
+        mask.put_pixel(px, py, Luma([255]));
+      }
+    }
+  }
+
+  let base_radius_x = if overlay_like {
+    (core_w / 10).max(5)
+  } else {
+    (core_w / 14).max(3)
+  };
+  let base_radius_y = if overlay_like {
+    (core_h / 12).max(3)
+  } else {
+    (core_h / 18).max(2)
+  };
+  let strength_boost = ((repair_strength - 8.0) / 4.0).round().max(0.0) as u32;
+  let dilated = dilate_mask(
+    &mask,
+    base_radius_x.saturating_add(strength_boost),
+    base_radius_y.saturating_add((strength_boost / 2).max(1)),
+  );
+
+  let mut final_mask = dilated;
+  merge_mask(&mut final_mask, &text_stroke_mask);
+  let mut filled = 0u32;
+  for py in core_y..core_y.saturating_add(core_h).min(height) {
+    for px in core_x..core_x.saturating_add(core_w).min(width) {
+      if final_mask.get_pixel(px, py)[0] > 0 {
+        filled += 1;
+      }
+    }
+  }
+
+  if filled < core_area / 20 {
+    let fallback_x = core_x.saturating_add((core_w as f32 * 0.24).round() as u32);
+    let fallback_y = core_y.saturating_add((core_h as f32 * 0.34).round() as u32);
+    let fallback_w = ((core_w as f32 * 0.74).round() as u32).max(1);
+    let fallback_h = ((core_h as f32 * 0.58).round() as u32).max(1);
+
+    for py in fallback_y..fallback_y.saturating_add(fallback_h).min(height) {
+      for px in fallback_x..fallback_x.saturating_add(fallback_w).min(width) {
+        final_mask.put_pixel(px, py, Luma([255]));
+      }
+    }
+
+    final_mask = dilate_mask(&final_mask, 2, 1);
+  }
+
+  final_mask
+}
+
+fn build_text_core_mask(
+  source: &RgbaImage,
+  estimate: &RgbaImage,
+  mask: &GrayImage,
+  core_x: u32,
+  core_y: u32,
+  core_w: u32,
+  core_h: u32,
+) -> GrayImage {
+  let (width, height) = source.dimensions();
+  let mut core = GrayImage::new(width, height);
+  let text_focus_x = core_x.saturating_add((core_w as f32 * 0.4).round() as u32);
+  let text_focus_y = core_y.saturating_add((core_h as f32 * 0.42).round() as u32);
+  let mut hits = 0u32;
+
+  for y in 0..height {
+    for x in 0..width {
+      if mask.get_pixel(x, y)[0] == 0 {
+        continue;
+      }
+
+      let src = source.get_pixel(x, y).0;
+      let est = estimate.get_pixel(x, y).0;
+      let diff = color_diff(src, est);
+      let lum_delta = luminance(src) - luminance(est);
+      let sat = saturation(src);
+      let edge = local_luma_contrast(source, x, y);
+      let text_focus_zone = x >= text_focus_x && y >= text_focus_y;
+
+      let text_like =
+        (lum_delta >= 14.0 && sat <= 125.0 && diff >= 10.0)
+          || (lum_delta <= -12.0 && sat <= 88.0 && diff >= 10.0)
+          || (text_focus_zone
+            && luminance(src) >= 136.0
+            && sat <= 170.0
+            && edge >= 9.0
+            && diff >= 6.0)
+          || (text_focus_zone
+            && sat <= 126.0
+            && edge >= 10.0
+            && (diff >= 6.0 || lum_delta.abs() >= 5.0))
+          || (diff >= 24.0 && sat <= 98.0);
+
+      if text_like {
+        core.put_pixel(x, y, Luma([255]));
+        hits += 1;
+      }
+    }
+  }
+
+  let mut final_core = dilate_mask(&core, 2, 1);
+  if hits < (width.saturating_mul(height) / 48).max(12) {
+    let fallback_x = core_x.saturating_add((core_w as f32 * 0.38).round() as u32);
+    let fallback_y = core_y.saturating_add((core_h as f32 * 0.42).round() as u32);
+    let fallback_w = ((core_w as f32 * 0.6).round() as u32).max(1);
+    let fallback_h = ((core_h as f32 * 0.46).round() as u32).max(1);
+    for y in fallback_y..fallback_y.saturating_add(fallback_h).min(height) {
+      for x in fallback_x..fallback_x.saturating_add(fallback_w).min(width) {
+        if mask.get_pixel(x, y)[0] > 0 {
+          final_core.put_pixel(x, y, Luma([255]));
+        }
+      }
+    }
+  }
+
+  final_core
+}
+
+fn apply_patch_from_mask(
+  canvas: &mut RgbaImage,
+  processed_patch: &RgbaImage,
+  mask: &GrayImage,
+  text_core_mask: &GrayImage,
+  outer_x: u32,
+  outer_y: u32,
+) {
+  let edge_mask = dilate_mask(mask, 3, 2);
+  let text_edge_mask = dilate_mask(text_core_mask, 4, 2);
+  let (width, height) = processed_patch.dimensions();
+
+  for py in 0..height {
+    for px in 0..width {
+      let mask_value = mask.get_pixel(px, py)[0];
+      let edge_value = edge_mask.get_pixel(px, py)[0];
+      let text_edge_value = text_edge_mask.get_pixel(px, py)[0];
+
+      if edge_value == 0 && text_edge_value == 0 {
+        continue;
+      }
+
+      let dst_x = outer_x + px;
+      let dst_y = outer_y + py;
+      let original = canvas.get_pixel(dst_x, dst_y).0;
+      let repaired = processed_patch.get_pixel(px, py).0;
+      let alpha = if mask_value > 0 {
+        1.0
+      } else if text_edge_value > 0 {
+        0.82
+      } else {
+        0.52
+      };
+
+      canvas.put_pixel(
+        dst_x,
+        dst_y,
+        Rgba([
+          (original[0] as f32 * (1.0 - alpha) + repaired[0] as f32 * alpha).round() as u8,
+          (original[1] as f32 * (1.0 - alpha) + repaired[1] as f32 * alpha).round() as u8,
+          (original[2] as f32 * (1.0 - alpha) + repaired[2] as f32 * alpha).round() as u8,
+          255,
+        ]),
+      );
+    }
+  }
+}
+
+fn build_texture_synthesis_candidate(
+  original_patch: &RgbaImage,
+  mask: &GrayImage,
+) -> Option<RgbaImage> {
+  let (width, height) = original_patch.dimensions();
+  let masked_pixels = mask.pixels().filter(|pixel| pixel[0] > 0).count() as u32;
+  let total_pixels = width.saturating_mul(height).max(1);
+  let mask_ratio = masked_pixels as f32 / total_pixels as f32;
+
+  if masked_pixels == 0 || mask_ratio > 0.32 {
+    return None;
+  }
+
+  let mask_rgba = DynamicImage::ImageLuma8(mask.clone()).to_rgba8();
+  let original_bytes = encode_png_bytes(&DynamicImage::ImageRgba8(original_patch.clone())).ok()?;
+  let mask_bytes = encode_png_bytes(&DynamicImage::ImageRgba8(mask_rgba.clone())).ok()?;
+  let session = ts::Session::builder()
+    .nearest_neighbors(16)
+    .random_sample_locations(20)
+    .cauchy_dispersion(0.8)
+    .backtrack_stages(4)
+    .backtrack_percent(0.5)
+    .seed(7)
+    .inpaint_example(
+      ts::ImageSource::Memory(mask_bytes.as_slice()),
+      ts::Example::builder(ts::ImageSource::Memory(original_bytes.as_slice()))
+        .set_sample_method(ts::SampleMethod::Image(ts::ImageSource::Memory(mask_bytes.as_slice()))),
+      ts::Dims::new(width, height),
+    )
+    .build()
+    .ok()?;
+
+  let generated = session.run(None).into_image().to_rgba8();
+  RgbaImage::from_raw(width, height, generated.into_raw())
+}
+
+fn apply_telea_inpaint(
+  image: &DynamicImage,
+  outer_x: u32,
+  outer_y: u32,
+  outer_w: u32,
+  outer_h: u32,
+  core_x: u32,
+  core_y: u32,
+  core_w: u32,
+  core_h: u32,
+  repair_strength: f32,
+) -> Result<DynamicImage> {
+  let mut canvas = image.to_rgba8();
+  let original_patch = image.crop_imm(outer_x, outer_y, outer_w, outer_h).to_rgba8();
+  let reflected_patch = build_corner_reflect_patch(image, outer_x, outer_y, outer_w, outer_h);
+  let context_patch = build_context_patch(image, outer_x, outer_y, outer_w, outer_h).to_rgba8();
+  let mut estimate_patch = RgbaImage::new(outer_w, outer_h);
+
+  for py in 0..outer_h {
+    for px in 0..outer_w {
+      let a = reflected_patch.get_pixel(px, py).0;
+      let b = context_patch.get_pixel(px, py).0;
+      estimate_patch.put_pixel(
+        px,
+        py,
+        Rgba([
+          ((a[0] as u16 + b[0] as u16) / 2) as u8,
+          ((a[1] as u16 + b[1] as u16) / 2) as u8,
+          ((a[2] as u16 + b[2] as u16) / 2) as u8,
+          255,
+        ]),
+      );
+    }
+  }
+
+  let mask = build_watermark_mask(
+    &original_patch,
+    &estimate_patch,
+    core_x,
+    core_y,
+    core_w,
+    core_h,
+    repair_strength,
+  );
+  let text_core_mask = build_text_core_mask(
+    &original_patch,
+    &estimate_patch,
+    &mask,
+    core_x,
+    core_y,
+    core_w,
+    core_h,
+  );
+  let text_expand = 1u32.saturating_add(((repair_strength - 8.0) / 6.0).round().max(0.0) as u32);
+  let expanded_text_core_mask = dilate_mask(&text_core_mask, text_expand + 1, text_expand);
+  let mut repair_mask = mask.clone();
+  merge_mask(&mut repair_mask, &expanded_text_core_mask);
+  let (text_pixels, avg_text_edge, avg_text_diff) =
+    mask_stats(&original_patch, &estimate_patch, &text_core_mask);
+  let flat_background_override = text_pixels > 0 && avg_text_edge <= 10.5 && avg_text_diff <= 26.0;
+  let base_radius = ((core_w.min(core_h) / 14).max(3)).min(9);
+  let radius_boost = ((repair_strength - 8.0) / 4.0).round().clamp(0.0, 4.0) as u32;
+  let radius = base_radius
+    .saturating_add(radius_boost)
+    .saturating_add(text_expand.min(2))
+    .min(13) as i32;
+  let patch = if flat_background_override {
+    apply_estimate_patch(
+      &original_patch,
+      &estimate_patch,
+      &repair_mask,
+      &expanded_text_core_mask,
+    )
+  } else {
+    let mut patch = original_patch.clone();
+    patch
+      .telea_inpaint(&repair_mask, radius)
+      .map_err(|err| anyhow!("Telea 修复失败: {err}"))?;
+
+    if let Some(candidate) = build_texture_synthesis_candidate(&original_patch, &repair_mask) {
+      let (width, height) = patch.dimensions();
+      let edge_mask = dilate_mask(&repair_mask, 4, 2);
+      let body_mask = erode_mask(&repair_mask, 2, 1);
+      for y in 0..height {
+        for x in 0..width {
+          if edge_mask.get_pixel(x, y)[0] == 0 {
+            continue;
+          }
+          let alpha = if text_core_mask.get_pixel(x, y)[0] > 0 {
+            1.0
+          } else if body_mask.get_pixel(x, y)[0] > 0 {
+            0.58
+          } else if repair_mask.get_pixel(x, y)[0] > 0 {
+            0.28
+          } else {
+            0.1
+          };
+          let telea_px = patch.get_pixel(x, y).0;
+          let candidate_px = candidate.get_pixel(x, y).0;
+          patch.put_pixel(
+            x,
+            y,
+            Rgba([
+              (telea_px[0] as f32 * (1.0 - alpha) + candidate_px[0] as f32 * alpha).round() as u8,
+              (telea_px[1] as f32 * (1.0 - alpha) + candidate_px[1] as f32 * alpha).round() as u8,
+              (telea_px[2] as f32 * (1.0 - alpha) + candidate_px[2] as f32 * alpha).round() as u8,
+              255,
+            ]),
+          );
+        }
+      }
+    }
+    patch
+  };
+
+  apply_patch_from_mask(&mut canvas, &patch, &repair_mask, &text_core_mask, outer_x, outer_y);
+  Ok(DynamicImage::ImageRgba8(canvas))
+}
+
+fn build_repair_mask_for_region(
+  image: &DynamicImage,
+  x: u32,
+  y: u32,
+  w: u32,
+  h: u32,
+  repair_strength: f32,
+) -> GrayImage {
+  let (img_w, img_h) = image.dimensions();
+  let pad_left = ((w as f32) * 0.36).round() as u32;
+  let pad_top = ((h as f32) * 0.72).round() as u32;
+  let pad_right = ((w as f32) * 0.08).round() as u32;
+  let pad_bottom = ((h as f32) * 0.12).round() as u32;
+  let (outer_x, outer_y, outer_w, outer_h, core_x, core_y) = padded_region(
+    x, y, w, h, img_w, img_h, pad_left, pad_top, pad_right, pad_bottom,
+  );
+
+  let original_patch = image.crop_imm(outer_x, outer_y, outer_w, outer_h).to_rgba8();
+  let reflected_patch = build_corner_reflect_patch(image, outer_x, outer_y, outer_w, outer_h);
+  let context_patch = build_context_patch(image, outer_x, outer_y, outer_w, outer_h).to_rgba8();
+  let mut estimate_patch = RgbaImage::new(outer_w, outer_h);
+
+  for py in 0..outer_h {
+    for px in 0..outer_w {
+      let a = reflected_patch.get_pixel(px, py).0;
+      let b = context_patch.get_pixel(px, py).0;
+      estimate_patch.put_pixel(
+        px,
+        py,
+        Rgba([
+          ((a[0] as u16 + b[0] as u16) / 2) as u8,
+          ((a[1] as u16 + b[1] as u16) / 2) as u8,
+          ((a[2] as u16 + b[2] as u16) / 2) as u8,
+          255,
+        ]),
+      );
+    }
+  }
+
+  let local_mask = build_watermark_mask(
+    &original_patch,
+    &estimate_patch,
+    core_x,
+    core_y,
+    w,
+    h,
+    repair_strength,
+  );
+
+  let mut full_mask = GrayImage::new(img_w, img_h);
+  for py in 0..outer_h {
+    for px in 0..outer_w {
+      if local_mask.get_pixel(px, py)[0] > 0 {
+        full_mask.put_pixel(outer_x + px, outer_y + py, Luma([255]));
+      }
+    }
+  }
+
+  full_mask
+}
+
+fn draw_mask_overlay(image: &DynamicImage, mask: &GrayImage) -> DynamicImage {
+  let mut canvas = image.to_rgba8();
+  let edge_mask = dilate_mask(mask, 2, 2);
+  let (width, height) = canvas.dimensions();
+
+  for y in 0..height {
+    for x in 0..width {
+      let mask_value = mask.get_pixel(x, y)[0];
+      let edge_value = edge_mask.get_pixel(x, y)[0];
+      if edge_value == 0 {
+        continue;
+      }
+
+      let base = canvas.get_pixel(x, y).0;
+      let overlay = if mask_value > 0 {
+        [235u8, 64u8, 52u8]
+      } else {
+        [255u8, 180u8, 72u8]
+      };
+      let alpha = if mask_value > 0 { 0.62 } else { 0.28 };
+
+      canvas.put_pixel(
+        x,
+        y,
+        Rgba([
+          (base[0] as f32 * (1.0 - alpha) + overlay[0] as f32 * alpha).round() as u8,
+          (base[1] as f32 * (1.0 - alpha) + overlay[1] as f32 * alpha).round() as u8,
+          (base[2] as f32 * (1.0 - alpha) + overlay[2] as f32 * alpha).round() as u8,
+          255,
+        ]),
+      );
+    }
+  }
+
+  DynamicImage::ImageRgba8(canvas)
+}
+
+fn padded_region(
+  x: u32,
+  y: u32,
+  w: u32,
+  h: u32,
+  img_w: u32,
+  img_h: u32,
+  pad_left: u32,
+  pad_top: u32,
+  pad_right: u32,
+  pad_bottom: u32,
+) -> (u32, u32, u32, u32, u32, u32) {
+  let outer_x = x.saturating_sub(pad_left);
+  let outer_y = y.saturating_sub(pad_top);
+  let outer_right = x.saturating_add(w).saturating_add(pad_right).min(img_w);
+  let outer_bottom = y.saturating_add(h).saturating_add(pad_bottom).min(img_h);
+  let outer_w = outer_right.saturating_sub(outer_x).max(1);
+  let outer_h = outer_bottom.saturating_sub(outer_y).max(1);
+  let core_x = x.saturating_sub(outer_x);
+  let core_y = y.saturating_sub(outer_y);
+
+  (outer_x, outer_y, outer_w, outer_h, core_x, core_y)
+}
+
+fn blend_patch_with_core(
   base: &mut RgbaImage,
   patch: &RgbaImage,
   x: u32,
   y: u32,
+  core_x: u32,
+  core_y: u32,
+  core_w: u32,
+  core_h: u32,
   feather: u32,
 ) {
   let (patch_w, patch_h) = patch.dimensions();
@@ -466,16 +1340,41 @@ fn blend_patch(
       let original = base.get_pixel(dst_x, dst_y).0;
       let patch_px = patch.get_pixel(px, py).0;
 
-      let dx = px.min(patch_w.saturating_sub(1) - px) as f32;
-      let dy = py.min(patch_h.saturating_sub(1) - py) as f32;
-      let edge_distance = dx.min(dy);
-      let alpha = (edge_distance / feather).clamp(0.0, 1.0);
-      let eased = alpha * alpha * (3.0 - 2.0 * alpha);
+      let inside_core = px >= core_x
+        && px < core_x.saturating_add(core_w)
+        && py >= core_y
+        && py < core_y.saturating_add(core_h);
+
+      let alpha = if inside_core {
+        1.0
+      } else {
+        let dx = if px < core_x {
+          core_x - px
+        } else if px >= core_x.saturating_add(core_w) {
+          px - core_x.saturating_add(core_w).saturating_sub(1)
+        } else {
+          0
+        };
+        let dy = if py < core_y {
+          core_y - py
+        } else if py >= core_y.saturating_add(core_h) {
+          py - core_y.saturating_add(core_h).saturating_sub(1)
+        } else {
+          0
+        };
+        let distance = dx.max(dy) as f32;
+        let raw = (1.0 - distance / feather).clamp(0.0, 1.0);
+        raw * raw * (3.0 - 2.0 * raw)
+      };
+
+      if alpha <= 0.0 {
+        continue;
+      }
 
       let blended = [
-        (original[0] as f32 * (1.0 - eased) + patch_px[0] as f32 * eased).round() as u8,
-        (original[1] as f32 * (1.0 - eased) + patch_px[1] as f32 * eased).round() as u8,
-        (original[2] as f32 * (1.0 - eased) + patch_px[2] as f32 * eased).round() as u8,
+        (original[0] as f32 * (1.0 - alpha) + patch_px[0] as f32 * alpha).round() as u8,
+        (original[1] as f32 * (1.0 - alpha) + patch_px[1] as f32 * alpha).round() as u8,
+        (original[2] as f32 * (1.0 - alpha) + patch_px[2] as f32 * alpha).round() as u8,
         255,
       ];
       base.put_pixel(dst_x, dst_y, Rgba(blended));
@@ -484,6 +1383,8 @@ fn blend_patch(
 }
 
 fn apply_cleanup(
+  app: Option<&tauri::AppHandle>,
+  engine: model_runtime::CleanupEngineKind,
   image: &DynamicImage,
   region: Region,
   base_width: u32,
@@ -493,6 +1394,24 @@ fn apply_cleanup(
   blur_sigma: f32,
   fill_color: &str,
 ) -> Result<DynamicImage> {
+  log::info!("apply_cleanup: engine={:?}, cleanup_method={}", engine, cleanup_method);
+  if engine == model_runtime::CleanupEngineKind::EmbeddedOnnx && cleanup_method == "blur" {
+    log::info!("使用 ONNX 模型进行修复");
+    if let Some(app) = app {
+      if let Ok(processed) = apply_embedded_model_cleanup(
+        app,
+        image,
+        region,
+        base_width,
+        base_height,
+        size_handling_mode,
+        blur_sigma,
+      ) {
+        return Ok(processed);
+      }
+    }
+  }
+
   let (width, height) = image.dimensions();
   let (x, y, w, h) = region_to_pixels(
     region,
@@ -523,44 +1442,49 @@ fn apply_cleanup(
       let mut canvas = image.to_rgba8();
       let color = parse_hex_color(fill_color)
         .unwrap_or_else(|_| average_border_color(&canvas, x, y, w, h));
-      let feather = ((w.min(h) as f32) * 0.2).round() as u32;
-      let mut patch = RgbaImage::new(w, h);
+      let pad_left = ((w as f32) * 0.28).round() as u32;
+      let pad_top = ((h as f32) * 0.55).round() as u32;
+      let pad_right = ((w as f32) * 0.06).round() as u32;
+      let pad_bottom = ((h as f32) * 0.08).round() as u32;
+      let (outer_x, outer_y, outer_w, outer_h, core_x, core_y) =
+        padded_region(
+          x, y, w, h, width, height, pad_left, pad_top, pad_right, pad_bottom,
+        );
+      let feather = ((outer_w.min(outer_h) as f32) * 0.12).round() as u32;
+      let mut patch = RgbaImage::new(outer_w, outer_h);
 
-      for py in 0..h {
-        for px in 0..w {
+      for py in 0..outer_h {
+        for px in 0..outer_w {
           patch.put_pixel(px, py, color);
         }
       }
 
-      blend_patch(&mut canvas, &patch, x, y, feather);
+      blend_patch_with_core(
+        &mut canvas, &patch, outer_x, outer_y, core_x, core_y, w, h, feather,
+      );
       Ok(DynamicImage::ImageRgba8(canvas))
     }
     _ => {
-      let mut canvas = image.to_rgba8();
-      let feather = ((w.min(h) as f32) * 0.18).round() as u32;
-      let synthetic = synthesize_inpaint_patch(image, x, y, w, h);
-      let context = build_context_patch(image, x, y, w, h)
-        .blur((blur_sigma * 0.35).max(1.0))
-        .to_rgba8();
-      let mut patch = RgbaImage::new(w, h);
-      for py in 0..h {
-        for px in 0..w {
-          let a = synthetic.get_pixel(px, py).0;
-          let b = context.get_pixel(px, py).0;
-          patch.put_pixel(
-            px,
-            py,
-            Rgba([
-              ((a[0] as u16 + b[0] as u16) / 2) as u8,
-              ((a[1] as u16 + b[1] as u16) / 2) as u8,
-              ((a[2] as u16 + b[2] as u16) / 2) as u8,
-              255,
-            ]),
-          );
-        }
-      }
-      blend_patch(&mut canvas, &patch, x, y, feather);
-      Ok(DynamicImage::ImageRgba8(canvas))
+      let pad_left = ((w as f32) * 0.36).round() as u32;
+      let pad_top = ((h as f32) * 0.72).round() as u32;
+      let pad_right = ((w as f32) * 0.08).round() as u32;
+      let pad_bottom = ((h as f32) * 0.12).round() as u32;
+      let (outer_x, outer_y, outer_w, outer_h, core_x, core_y) =
+        padded_region(
+          x, y, w, h, width, height, pad_left, pad_top, pad_right, pad_bottom,
+        );
+      apply_telea_inpaint(
+        image,
+        outer_x,
+        outer_y,
+        outer_w,
+        outer_h,
+        core_x,
+        core_y,
+        w,
+        h,
+        blur_sigma,
+      )
     }
   }
 }
@@ -584,6 +1508,151 @@ fn output_directory(requested: Option<String>, first_path: &str) -> Result<PathB
   let output = base.join(format!("batch-image-studio-output-{}", stamp));
   fs::create_dir_all(&output)?;
   Ok(output)
+}
+
+fn apply_embedded_model_cleanup(
+  app: &tauri::AppHandle,
+  image: &DynamicImage,
+  region: Region,
+  base_width: u32,
+  base_height: u32,
+  size_handling_mode: &str,
+  repair_strength: f32,
+) -> Result<DynamicImage> {
+  log::info!("apply_embedded_model_cleanup: 开始加载内置模型");
+  let bundled_model = model_runtime::resolve_bundled_model(app)?
+    .ok_or_else(|| anyhow!("未找到内置模型文件"))?;
+  log::info!("模型加载成功: {} ({} MB)", bundled_model.model_path, bundled_model.bytes / 1024 / 1024);
+  let input_w = bundled_model.input_width.max(1);
+  let input_h = bundled_model.input_height.max(1);
+  let (img_w, img_h) = image.dimensions();
+  let (x, y, w, h) = region_to_pixels(
+    region,
+    img_w,
+    img_h,
+    base_width,
+    base_height,
+    size_handling_mode,
+  );
+
+  // 为 ONNX 模型创建简单的矩形 mask
+  // 扩展修复区域以确保边缘自然融合
+  let expand = ((w.min(h) as f32) * 0.15).round() as u32;
+  let mask_x = x.saturating_sub(expand);
+  let mask_y = y.saturating_sub(expand);
+  let mask_w = (w + 2 * expand).min(img_w - mask_x);
+  let mask_h = (h + 2 * expand).min(img_h - mask_y);
+
+  log::info!("创建 ONNX mask: x={}, y={}, w={}, h={}, 原始: x={}, y={}, w={}, h={}",
+    mask_x, mask_y, mask_w, mask_h, x, y, w, h);
+
+  let mut repair_mask = GrayImage::new(img_w, img_h);
+  for py in mask_y..mask_y + mask_h {
+    for px in mask_x..mask_x + mask_w {
+      repair_mask.put_pixel(px, py, Luma([255]));
+    }
+  }
+
+  run_onnx_inpainting(image, &repair_mask, Path::new(&bundled_model.model_path), input_w, input_h)
+}
+
+fn run_onnx_inpainting(
+  image: &DynamicImage,
+  mask: &GrayImage,
+  model_path: &Path,
+  input_w: u32,
+  input_h: u32,
+) -> Result<DynamicImage> {
+  use std::io::Write;
+  use std::process::Command;
+
+  log::info!("run_onnx_inpainting: 使用 Python ONNX Runtime");
+  log::info!("原始图像大小: {}x{}, mask 大小: {}x{}",
+    image.width(), image.height(), mask.width(), mask.height());
+
+  // 创建临时目录
+  let temp_dir = std::env::temp_dir().join("lama_inpaint");
+  fs::create_dir_all(&temp_dir)
+    .with_context(|| "无法创建临时目录")?;
+
+  // 生成唯一的文件名
+  let timestamp = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)?
+    .as_micros();
+  let image_path = temp_dir.join(format!("input_{}.png", timestamp));
+  let mask_path = temp_dir.join(format!("mask_{}.png", timestamp));
+  let output_path = temp_dir.join(format!("output_{}.png", timestamp));
+
+  // 保存图像
+  image.save(&image_path)
+    .with_context(|| "无法保存输入图像")?;
+  DynamicImage::ImageLuma8(mask.clone()).save(&mask_path)
+    .with_context(|| "无法保存 mask")?;
+
+  log::info!("临时文件已保存");
+
+  // 获取脚本路径 - 在开发模式下使用项目中的脚本
+  let script_path = if cfg!(debug_assertions) {
+    // 开发模式：从可执行文件向上找到项目根目录
+    std::env::current_exe()?
+      .ancestors()
+      .find(|a| a.join("src-tauri").join("scripts").exists())
+      .map(|p| p.join("src-tauri").join("scripts").join("lama_inpaint.py"))
+      .unwrap_or_else(|| PathBuf::from("src-tauri/scripts/lama_inpaint.py"))
+  } else {
+    // 生产模式：使用资源目录中的脚本
+    std::env::current_exe()?
+      .parent()
+      .map(|p| p.join("scripts").join("lama_inpaint.py"))
+      .unwrap_or_else(|| PathBuf::from("scripts/lama_inpaint.py"))
+  };
+
+  log::info!("脚本路径: {:?}", script_path);
+  log::info!("模型路径: {:?}", model_path);
+
+  // 调用 Python 脚本
+  let output = Command::new("python3")
+    .arg(&script_path)
+    .arg("--model")
+    .arg(model_path)
+    .arg("--image")
+    .arg(&image_path)
+    .arg("--mask")
+    .arg(&mask_path)
+    .arg("--output")
+    .arg(&output_path)
+    .arg("--size")
+    .arg(format!("{}", input_w))
+    .arg(format!("{}", input_h))
+    .output()
+    .with_context(|| "Python 脚本执行失败")?;
+
+  // 记录 stderr 输出（包含调试信息）
+  let stderr = String::from_utf8_lossy(&output.stderr);
+  if !stderr.is_empty() {
+    for line in stderr.lines() {
+      log::info!("[Python] {}", line);
+    }
+  }
+
+  if !output.status.success() {
+    log::error!("Python 脚本错误: {}", stderr);
+    return Err(anyhow!("Python 脚本执行失败: {}", stderr));
+  }
+
+  log::info!("Python 脚本执行成功");
+
+  // 读取输出图像
+  let result = image::open(&output_path)
+    .with_context(|| "无法读取输出图像")?;
+
+  // 清理临时文件
+  let _ = fs::remove_file(&image_path);
+  let _ = fs::remove_file(&mask_path);
+  let _ = fs::remove_file(&output_path);
+
+  log::info!("图像修复完成");
+  Ok(result)
 }
 
 fn build_unique_output_path(output_dir: &Path, source_path: &Path) -> PathBuf {
@@ -663,10 +1732,21 @@ fn import_paths(paths: Vec<String>) -> Result<ImportSummary, String> {
 }
 
 #[tauri::command]
-fn preview_cleanup(request: PreviewRequest) -> Result<PreviewResult, String> {
+fn preview_cleanup(app: tauri::AppHandle, request: PreviewRequest) -> Result<PreviewResult, String> {
+  let engine = model_runtime::resolve_cleanup_engine(&app).map_err(|err| err.to_string())?;
   let image = load_image(Path::new(&request.path)).map_err(|err| err.to_string())?;
   let source = draw_region_overlay(&image, request.region);
+  let (x, y, w, h) = region_to_pixels(
+    request.region,
+    image.width(),
+    image.height(),
+    request.base_width,
+    request.base_height,
+    &request.size_handling_mode,
+  );
   let processed = apply_cleanup(
+    Some(&app),
+    engine,
     &image,
     request.region,
     request.base_width,
@@ -677,25 +1757,34 @@ fn preview_cleanup(request: PreviewRequest) -> Result<PreviewResult, String> {
     &request.fill_color,
   )
   .map_err(|err| err.to_string())?;
+  let mask_image = if request.cleanup_method == "blur" {
+    let mask = build_repair_mask_for_region(&image, x, y, w, h, request.blur_sigma);
+    draw_mask_overlay(&image, &mask)
+  } else {
+    draw_region_overlay(&image, request.region)
+  };
 
   let source_preview = preview_image(&source, 1400);
   let processed_preview = preview_image(&processed, 1400);
+  let mask_preview = preview_image(&mask_image, 1400);
 
   Ok(PreviewResult {
     source_data_url: encode_jpeg_data_url(&source_preview, 82).map_err(|err| err.to_string())?,
     processed_data_url: encode_jpeg_data_url(&processed_preview, 82)
       .map_err(|err| err.to_string())?,
+    mask_data_url: encode_jpeg_data_url(&mask_preview, 82).map_err(|err| err.to_string())?,
     output_width: processed.width(),
     output_height: processed.height(),
   })
 }
 
 #[tauri::command]
-fn run_batch_cleanup(request: BatchRequest) -> Result<BatchResult, String> {
+fn run_batch_cleanup(app: tauri::AppHandle, request: BatchRequest) -> Result<BatchResult, String> {
   if request.paths.is_empty() {
     return Err("没有可处理的图片".to_string());
   }
 
+  let engine = model_runtime::resolve_cleanup_engine(&app).map_err(|err| err.to_string())?;
   let output_dir =
     output_directory(request.output_dir.clone(), &request.paths[0]).map_err(|err| err.to_string())?;
   let mut entries = Vec::new();
@@ -709,6 +1798,8 @@ fn run_batch_cleanup(request: BatchRequest) -> Result<BatchResult, String> {
     let result = (|| -> Result<()> {
       let image = load_image(&path)?;
       let processed = apply_cleanup(
+        Some(&app),
+        engine,
         &image,
         request.region,
         request.base_width,
@@ -758,6 +1849,7 @@ pub fn run() {
   tauri::Builder::default()
     .invoke_handler(tauri::generate_handler![
       bootstrap_state,
+      runtime_status,
       import_paths,
       preview_cleanup,
       run_batch_cleanup

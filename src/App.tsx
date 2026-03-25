@@ -63,32 +63,43 @@ const cleanupPresets: Array<{
 }> = [
   {
     id: "doubao-default",
-    label: "豆包默认水印",
-    detail: "针对豆包 AI 常见右下角标识的第一版规则。",
+    label: "豆包文字角标",
+    detail: "适合豆包 AI 常见的右下角文字或小图标角标。",
     cleanupMethod: "blur",
-    blurSigma: 12,
+    blurSigma: 10,
     region: { x: 0.72, y: 0.8, width: 0.22, height: 0.12 },
     fillColor: "#f7f9fc",
   },
   {
-    id: "doubao-wide",
-    label: "豆包宽水印",
-    detail: "适合底边更宽、占据横向空间较大的豆包标识。",
-    cleanupMethod: "crop",
-    blurSigma: 8,
-    region: { x: 0.0, y: 0.9, width: 1, height: 0.1 },
+    id: "doubao-card",
+    label: "豆包卡片角标",
+    detail: "适合右下角带半透明底板、缩略图或更大占位的角标。",
+    cleanupMethod: "blur",
+    blurSigma: 14,
+    region: { x: 0.66, y: 0.74, width: 0.28, height: 0.18 },
     fillColor: "#f7f9fc",
   },
   {
-    id: "doubao-light-bg",
-    label: "豆包浅底图",
-    detail: "适合浅色背景上的豆包角落文字。",
+    id: "doubao-light-fill",
+    label: "浅底快速盖除",
+    detail: "适合纯色或浅色背景，直接填充比修复更稳定。",
     cleanupMethod: "fill",
-    blurSigma: 6,
+    blurSigma: 8,
     region: { x: 0.68, y: 0.76, width: 0.24, height: 0.14 },
     fillColor: "#ffffff",
   },
 ];
+
+function getCleanupMethodLabel(method: CleanupMethod) {
+  switch (method) {
+    case "fill":
+      return "填充";
+    case "crop":
+      return "裁切";
+    default:
+      return "修复";
+  }
+}
 
 function formatBytes(value: number) {
   if (value < 1024) {
@@ -458,63 +469,6 @@ function PreviewCard({
   );
 }
 
-function ComparePreview({
-  sourceImage,
-  processedImage,
-  slider,
-  onSliderChange,
-}: {
-  sourceImage: string | null;
-  processedImage: string | null;
-  slider: number;
-  onSliderChange: (value: number) => void;
-}) {
-  return (
-    <section className="rounded-[24px] border border-line bg-surface p-5">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold uppercase tracking-[0.22em] text-primary-strong">
-          前后对比
-        </h3>
-        <span className="rounded-full bg-white px-3 py-1 font-mono text-xs text-muted">
-          {slider}%
-        </span>
-      </div>
-
-      <div className="relative mt-4 overflow-hidden rounded-[20px] border border-line bg-white">
-        {sourceImage && processedImage ? (
-          <div className="relative h-[320px]">
-            <img alt="before" className="absolute inset-0 h-full w-full object-contain" src={sourceImage} />
-            <div
-              className="absolute inset-0 overflow-hidden"
-              style={{ width: `${slider}%` }}
-            >
-              <img alt="after" className="h-full w-full object-contain" src={processedImage} />
-            </div>
-            <div
-              className="absolute inset-y-0 w-0.5 bg-primary"
-              style={{ left: `${slider}%` }}
-            />
-          </div>
-        ) : (
-          <div className="flex h-[320px] items-center justify-center text-sm text-muted">
-            生成样张后可拖动滑杆比较前后差异。
-          </div>
-        )}
-      </div>
-
-      <input
-        className="mt-4 w-full accent-primary"
-        type="range"
-        min={5}
-        max={95}
-        step={1}
-        value={slider}
-        onChange={(event) => onSliderChange(Number(event.target.value))}
-      />
-    </section>
-  );
-}
-
 function ImageList({
   items,
   selectedImageId,
@@ -590,7 +544,9 @@ function TemplatesPanel({
               onClick={() => onApply(template.id)}
             >
               <span>{template.name}</span>
-              <span className="font-mono text-xs text-muted">{template.cleanupMethod}</span>
+              <span className="font-mono text-xs text-muted">
+                {getCleanupMethodLabel(template.cleanupMethod)}
+              </span>
             </button>
           ))
         )}
@@ -612,7 +568,7 @@ function HistoryPanel({ history }: { history: HistoryEntry[] }) {
           history.map((item) => (
             <div key={item.id} className="rounded-2xl border border-line bg-white p-4">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-medium">{item.cleanupMethod.toUpperCase()}</p>
+                <p className="text-sm font-medium">{getCleanupMethodLabel(item.cleanupMethod)}</p>
                 <p className="text-xs text-muted">{new Date(item.createdAt).toLocaleString()}</p>
               </div>
               <p className="mt-2 text-sm text-muted">
@@ -629,7 +585,7 @@ function HistoryPanel({ history }: { history: HistoryEntry[] }) {
 
 export default function App() {
   const [bootstrapState, setBootstrapState] = useState<BootstrapState | null>(null);
-  const [compareSlider, setCompareSlider] = useState(50);
+  const [resultViewMode, setResultViewMode] = useState<"processed" | "source" | "mask">("processed");
   const [isDragActive, setIsDragActive] = useState(false);
   const {
     importedImages,
@@ -1025,7 +981,7 @@ export default function App() {
               <p className="text-sm uppercase tracking-[0.3em] text-primary-strong">Workflow</p>
               <h1 className="mt-2 text-3xl font-semibold">导入、预览、批处理</h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-muted">
-                当前版本只针对豆包 AI 图片去标识场景。默认假设水印具有稳定规则，优先从右下角位置入手；当前提供的是轻量修复，不是 PS 级内容识别修复。
+                当前版本只针对豆包 AI 图片去标识场景。默认按右下角规则生成选区，并优先使用文字修复算法处理；复杂卡片角标仍需你手动核对范围。
               </p>
             </div>
             <div className="grid gap-2 text-right">
@@ -1036,7 +992,7 @@ export default function App() {
                 状态: {workflowLabel}
               </span>
               <span className="rounded-full bg-surface px-3 py-1 text-xs text-muted">
-                处理方式: {cleanupMethod}
+                处理方式: {getCleanupMethodLabel(cleanupMethod)}
               </span>
               <span className="rounded-full bg-surface px-3 py-1 text-xs text-muted">
                 批量套用: {sizeHandlingMode}
@@ -1169,11 +1125,29 @@ export default function App() {
                       : undefined
                   }
                 />
-                <ComparePreview
-                  sourceImage={preview?.sourceDataUrl ?? null}
-                  processedImage={preview?.processedDataUrl ?? null}
-                  slider={compareSlider}
-                  onSliderChange={setCompareSlider}
+                <PreviewCard
+                  title={
+                    resultViewMode === "processed"
+                      ? "处理后预览"
+                      : resultViewMode === "mask"
+                        ? "Mask 识别预览"
+                        : "效果位原图参考"
+                  }
+                  image={
+                    resultViewMode === "processed"
+                      ? (preview?.processedDataUrl ?? null)
+                      : resultViewMode === "mask"
+                        ? (preview?.maskDataUrl ?? null)
+                      : (preview?.sourceDataUrl ?? selectedImage?.thumbnailDataUrl ?? null)
+                  }
+                  selected={false}
+                  dimensions={
+                    resultViewMode === "processed" && preview
+                      ? { width: preview.outputWidth, height: preview.outputHeight }
+                      : selectedImage
+                        ? { width: selectedImage.width, height: selectedImage.height }
+                        : undefined
+                  }
                 />
               </section>
 
@@ -1195,7 +1169,35 @@ export default function App() {
                   >
                     {isBatchRunning ? "批处理中..." : "开始批量导出"}
                   </button>
+                  <button
+                    className="rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium disabled:opacity-60"
+                    type="button"
+                    disabled={!selectedImage}
+                    onClick={() => setResultViewMode("processed")}
+                  >
+                    查看效果
+                  </button>
+                  <button
+                    className="rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium disabled:opacity-60"
+                    type="button"
+                    disabled={!selectedImage}
+                    onClick={() => setResultViewMode("source")}
+                  >
+                    查看原图
+                  </button>
+                  <button
+                    className="rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium disabled:opacity-60"
+                    type="button"
+                    disabled={!preview}
+                    onClick={() => setResultViewMode("mask")}
+                  >
+                    查看 Mask
+                  </button>
                 </div>
+
+                <p className="mt-3 text-sm text-muted">
+                  预览固定为两张图并排：左边原图带选区，右边可切换查看处理后效果、原图参考和 Mask 识别结果。
+                </p>
 
                 {lastBatchResult ? (
                   <div className="mt-4 rounded-2xl border border-line bg-white p-4 text-sm">
@@ -1268,6 +1270,9 @@ export default function App() {
 
               <div>
                 <p className="mb-2 text-sm font-medium">批量尺寸策略</p>
+                <p className="mb-3 text-xs text-muted">
+                  当前规则会应用到本次导入的全部图片。不同尺寸的图片按下面策略换算区域。
+                </p>
                 <div className="grid gap-2">
                   {[
                     {
@@ -1304,20 +1309,24 @@ export default function App() {
               </div>
 
               <div>
-                <p className="mb-2 text-sm font-medium">清理方式</p>
+                <p className="mb-2 text-sm font-medium">处理方式</p>
                 <div className="grid grid-cols-3 gap-2">
-                  {["blur", "fill", "crop"].map((method) => (
+                  {[
+                    { id: "blur", label: "修复" },
+                    { id: "fill", label: "填充" },
+                    { id: "crop", label: "裁切" },
+                  ].map((method) => (
                     <button
-                      key={method}
+                      key={method.id}
                       className={`rounded-xl border px-3 py-2 text-xs font-medium uppercase ${
-                        cleanupMethod === method
+                        cleanupMethod === method.id
                           ? "border-primary bg-primary text-white"
                           : "border-line bg-white"
                       }`}
                       type="button"
-                      onClick={() => setCleanupMethod(method as CleanupMethod)}
+                      onClick={() => setCleanupMethod(method.id as CleanupMethod)}
                     >
-                      {method}
+                      {method.label}
                     </button>
                   ))}
                 </div>
@@ -1325,7 +1334,7 @@ export default function App() {
 
               <div>
                 <div className="mb-2 flex items-center justify-between text-sm">
-                  <span>修复混合强度</span>
+                  <span>修复强度</span>
                   <span className="font-mono text-xs text-muted">{blurSigma.toFixed(1)}</span>
                 </div>
                 <input
@@ -1338,7 +1347,7 @@ export default function App() {
                   onChange={(event) => setBlurSigma(Number(event.target.value))}
                 />
                 <p className="mt-2 text-xs text-muted">
-                  数值越高，当前轻量修复会更偏向周边纹理混合，不代表真正的 AI 内容识别。
+                  仅对“修复”模式生效。数值越高，水印 mask 会更宽，Telea 修复半径也会更大，适合半透明卡片角标。
                 </p>
               </div>
 

@@ -2,7 +2,6 @@ import { create } from "zustand";
 import type {
   BatchResult,
   CleanupMethod,
-  DetectionMode,
   HistoryEntry,
   ImportSummary,
   ImportedImage,
@@ -17,16 +16,16 @@ const HISTORY_KEY = "batch-image-studio.history";
 
 function computeDoubaoRegion(width: number, height: number): Region {
   const shortSide = Math.max(1, Math.min(width, height));
-  const watermarkWidth = (0.18 * shortSide) / width;
-  const watermarkHeight = (0.045 * shortSide) / height;
-  const rightMargin = (0.025 * shortSide) / width;
-  const bottomMargin = (0.022 * shortSide) / height;
+  const watermarkWidth = (0.205 * shortSide) / width;
+  const watermarkHeight = (0.062 * shortSide) / height;
+  const rightMargin = (0.018 * shortSide) / width;
+  const bottomMargin = (0.016 * shortSide) / height;
 
   return {
     x: Math.max(0.01, 1 - rightMargin - watermarkWidth),
     y: Math.max(0.01, 1 - bottomMargin - watermarkHeight),
-    width: Math.min(0.32, watermarkWidth),
-    height: Math.min(0.12, watermarkHeight),
+    width: Math.min(0.34, watermarkWidth),
+    height: Math.min(0.14, watermarkHeight),
   };
 }
 
@@ -52,7 +51,6 @@ function saveArray<T>(key: string, value: T[]) {
 }
 
 type WorkspaceState = {
-  detectionMode: DetectionMode;
   cleanupMethod: CleanupMethod;
   sizeHandlingMode: SizeHandlingMode;
   blurSigma: number;
@@ -70,7 +68,6 @@ type WorkspaceState = {
   isBatchRunning: boolean;
   notification: { kind: "info" | "success" | "error"; message: string } | null;
   lastBatchResult: BatchResult | null;
-  setDetectionMode: (mode: DetectionMode) => void;
   setCleanupMethod: (method: CleanupMethod) => void;
   setSizeHandlingMode: (mode: SizeHandlingMode) => void;
   setBlurSigma: (sigma: number) => void;
@@ -94,7 +91,6 @@ type WorkspaceState = {
 };
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
-  detectionMode: "fixed",
   cleanupMethod: "blur",
   sizeHandlingMode: "relative",
   blurSigma: 10,
@@ -112,7 +108,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   isBatchRunning: false,
   notification: null,
   lastBatchResult: null,
-  setDetectionMode: (detectionMode) => set({ detectionMode }),
   setCleanupMethod: (cleanupMethod) => set({ cleanupMethod }),
   setSizeHandlingMode: (sizeHandlingMode) => set({ sizeHandlingMode }),
   setBlurSigma: (blurSigma) => set({ blurSigma }),

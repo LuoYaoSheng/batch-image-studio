@@ -28,3 +28,10 @@ image = "0.25.6"
 base64 = "0.22.1"
 walkdir = "2.5.0"
 anyhow = "1.0.102"
+inpaint = { version = "0.1.7", features = ["image"] }
+texture-synthesis = "0.8.2"
+ndarray = { version = "0.17.2", features = ["std"] }
+# tract-onnx 不支持 PyTorch 导出的 ONNX 模型（aten_* 算子）
+# 使用 Python onnxruntime 通过脚本调用
+# tempfile 用于临时文件
+tempfile = "3"

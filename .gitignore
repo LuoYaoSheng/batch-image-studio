@@ -4,6 +4,9 @@ dist/
 *.log
 
 src-tauri/target/
+resources/models/**/*.onnx
+resources/models/**/*.ort
+resources/models/**/*.bin
 
 # Local-only prototype references
 stitch/

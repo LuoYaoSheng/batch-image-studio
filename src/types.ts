@@ -1,5 +1,4 @@
 export type CleanupMethod = "blur" | "fill" | "crop";
-export type DetectionMode = "fixed" | "auto" | "hybrid";
 export type SizeHandlingMode = "relative" | "absolute" | "bottomRight";
 
 export type Region = {
@@ -28,6 +27,7 @@ export type ImportSummary = {
 export type PreviewResult = {
   sourceDataUrl: string;
   processedDataUrl: string;
+  maskDataUrl: string;
   outputWidth: number;
   outputHeight: number;
 };

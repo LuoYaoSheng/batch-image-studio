@@ -1,0 +1,7 @@
+{
+  "profileId": "doubao-watermark",
+  "displayName": "Doubao LaMa",
+  "modelFile": "model.onnx",
+  "inputWidth": 512,
+  "inputHeight": 512
+}
