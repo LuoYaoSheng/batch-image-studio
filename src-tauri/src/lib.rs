@@ -14,9 +14,10 @@ use std::{
   collections::HashSet,
   fs,
   path::{Path, PathBuf},
+  thread,
   time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use texture_synthesis as ts;
 // tract_onnx 不再使用，改用 Python onnxruntime
 use walkdir::WalkDir;
@@ -84,16 +85,46 @@ struct BatchRequest {
   blur_sigma: f32,
   fill_color: String,
   output_dir: Option<String>,
+  preview_caches: Vec<PreviewCache>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PreviewResult {
+  processed_image_path: String,
+  processed_display_data_url: String,
+  output_width: u32,
+  output_height: u32,
+  cached_processed_path: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PreviewTaskStarted {
+  task_id: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PreviewTaskEvent {
+  task_id: String,
+  stage: String,
+  message: String,
+  result: Option<PreviewResult>,
+  error: Option<String>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct PreviewResult {
-  source_data_url: String,
-  processed_data_url: String,
+struct MaskPreviewResult {
   mask_data_url: String,
-  output_width: u32,
-  output_height: u32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PreviewCache {
+  source_path: String,
+  cached_processed_path: String,
 }
 
 #[derive(Serialize)]
@@ -113,6 +144,17 @@ struct BatchResult {
   success_count: usize,
   failed_count: usize,
   entries: Vec<BatchEntry>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchProgressPayload {
+  total: usize,
+  completed: usize,
+  success_count: usize,
+  failed_count: usize,
+  current_file: String,
+  stage: String,
 }
 
 #[tauri::command]
@@ -1567,6 +1609,38 @@ fn output_directory(requested: Option<String>, first_path: &str) -> Result<PathB
   Ok(output)
 }
 
+fn preview_cache_path(source_path: &str) -> Result<PathBuf> {
+  let temp_dir = std::env::temp_dir().join("batch-image-studio-preview-cache");
+  fs::create_dir_all(&temp_dir)?;
+  let source = Path::new(source_path);
+  let stem = source
+    .file_stem()
+    .and_then(|name| name.to_str())
+    .unwrap_or("preview");
+  let ext = source
+    .extension()
+    .and_then(|name| name.to_str())
+    .unwrap_or("png");
+  let timestamp = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)?
+    .as_micros();
+  Ok(temp_dir.join(format!("{stem}_{timestamp}.{ext}")))
+}
+
+fn preview_transport_path(source_path: &str) -> Result<PathBuf> {
+  let temp_dir = std::env::temp_dir().join("batch-image-studio-preview-render");
+  fs::create_dir_all(&temp_dir)?;
+  let source = Path::new(source_path);
+  let stem = source
+    .file_stem()
+    .and_then(|name| name.to_str())
+    .unwrap_or("preview");
+  let timestamp = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)?
+    .as_micros();
+  Ok(temp_dir.join(format!("{stem}_{timestamp}.jpg")))
+}
+
 fn apply_embedded_model_cleanup(
   app: &tauri::AppHandle,
   image: &DynamicImage,
@@ -1707,10 +1781,14 @@ fn build_unique_output_path(output_dir: &Path, source_path: &Path) -> PathBuf {
 
 #[tauri::command]
 fn import_paths(paths: Vec<String>) -> Result<ImportSummary, String> {
+  let import_started = std::time::Instant::now();
+  log::info!("收到导入请求: {} 个路径来源", paths.len());
   let (collected, mut warnings) = collect_image_paths(paths);
+  log::info!("导入过滤后保留 {} 张图片", collected.len());
   let mut items = Vec::new();
 
   for path in collected {
+    let decode_started = std::time::Instant::now();
     match load_image(&path) {
       Ok(image) => {
         let metadata = fs::metadata(&path).map_err(|err| err.to_string())?;
@@ -1737,27 +1815,42 @@ fn import_paths(paths: Vec<String>) -> Result<ImportSummary, String> {
           file_size: metadata.len(),
           thumbnail_data_url,
         });
+        log::info!(
+          "导入图片完成: {} ({}x{}, {} ms)",
+          path.display(),
+          image.width(),
+          image.height(),
+          decode_started.elapsed().as_millis()
+        );
       }
-      Err(err) => warnings.push(err.to_string()),
+      Err(err) => {
+        log::error!("导入图片失败: {} -> {}", path.display(), err);
+        warnings.push(err.to_string());
+      }
     }
   }
+
+  log::info!(
+    "导入完成: {} 张成功, {} 条警告, 总耗时 {} ms",
+    items.len(),
+    warnings.len(),
+    import_started.elapsed().as_millis()
+  );
 
   Ok(ImportSummary { items, warnings })
 }
 
 #[tauri::command]
 fn preview_cleanup(app: tauri::AppHandle, request: PreviewRequest) -> Result<PreviewResult, String> {
+  let preview_started = std::time::Instant::now();
+  log::info!(
+    "开始生成预览: path={}, cleanup_method={}, size_mode={}",
+    request.path,
+    request.cleanup_method,
+    request.size_handling_mode
+  );
   let engine = model_runtime::resolve_cleanup_engine(&app).map_err(|err| err.to_string())?;
   let image = load_image(Path::new(&request.path)).map_err(|err| err.to_string())?;
-  let source = draw_region_overlay(&image, request.region);
-  let (x, y, w, h) = region_to_pixels(
-    request.region,
-    image.width(),
-    image.height(),
-    request.base_width,
-    request.base_height,
-    &request.size_handling_mode,
-  );
   let processed = apply_cleanup(
     Some(&app),
     engine,
@@ -1772,25 +1865,104 @@ fn preview_cleanup(app: tauri::AppHandle, request: PreviewRequest) -> Result<Pre
     false,  // 预览也需要使用ONNX显示实际效果
   )
   .map_err(|err| err.to_string())?;
+
+  let processed_preview = preview_image(&processed, 600);
+  let cached_processed_path = preview_cache_path(&request.path).map_err(|err| err.to_string())?;
+  processed
+    .save(&cached_processed_path)
+    .map_err(|err| format!("无法写入预览缓存: {err}"))?;
+  let preview_transport_path = preview_transport_path(&request.path).map_err(|err| err.to_string())?;
+  processed_preview
+    .save(&preview_transport_path)
+    .map_err(|err| format!("无法写入预览展示图: {err}"))?;
+
+  Ok(PreviewResult {
+    processed_image_path: preview_transport_path.to_string_lossy().to_string(),
+    processed_display_data_url: encode_jpeg_data_url(&processed_preview, 82)
+      .map_err(|err| err.to_string())?,
+    output_width: processed.width(),
+    output_height: processed.height(),
+    cached_processed_path: cached_processed_path.to_string_lossy().to_string(),
+  }).inspect(|_| {
+    log::info!("预览生成完成，总耗时 {} ms", preview_started.elapsed().as_millis());
+  })
+}
+
+#[tauri::command]
+fn start_preview_task(app: tauri::AppHandle, request: PreviewRequest) -> Result<PreviewTaskStarted, String> {
+  let task_id = format!("preview-{}", SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .map_err(|err| err.to_string())?
+    .as_micros());
+  let app_handle = app.clone();
+  let task_id_for_thread = task_id.clone();
+
+  thread::spawn(move || {
+    let emit_event = |stage: &str, message: &str, result: Option<PreviewResult>, error: Option<String>| {
+      let _ = app_handle.emit(
+        "preview-task",
+        PreviewTaskEvent {
+          task_id: task_id_for_thread.clone(),
+          stage: stage.to_string(),
+          message: message.to_string(),
+          result,
+          error,
+        },
+      );
+    };
+
+    emit_event("started", "预览任务已开始", None, None);
+
+    let server_manager = app_handle.state::<onnx_server::OnnxServerManager>();
+    if server_manager.status() != onnx_server::ModelLoadStatus::Loaded {
+      emit_event("model-loading", "正在准备 AI 引擎...", None, None);
+    }
+
+    emit_event("processing", "正在处理图片...", None, None);
+    match preview_cleanup(app_handle.clone(), request) {
+      Ok(result) => {
+        emit_event("saving", "正在整理预览结果...", None, None);
+        emit_event("completed", "预览已完成", Some(result), None);
+      }
+      Err(error) => {
+        emit_event("error", "预览生成失败", None, Some(error));
+      }
+    }
+  });
+
+  Ok(PreviewTaskStarted { task_id: task_id })
+}
+
+#[tauri::command]
+fn preview_mask(request: PreviewRequest) -> Result<MaskPreviewResult, String> {
+  let started = std::time::Instant::now();
+  log::info!(
+    "开始生成 mask 预览: path={}, cleanup_method={}, size_mode={}",
+    request.path,
+    request.cleanup_method,
+    request.size_handling_mode
+  );
+  let image = load_image(Path::new(&request.path)).map_err(|err| err.to_string())?;
+  let (x, y, w, h) = region_to_pixels(
+    request.region,
+    image.width(),
+    image.height(),
+    request.base_width,
+    request.base_height,
+    &request.size_handling_mode,
+  );
   let mask_image = if request.cleanup_method == "blur" {
     let mask = build_repair_mask_for_region(&image, x, y, w, h, request.blur_sigma);
     draw_mask_overlay(&image, &mask)
   } else {
     draw_region_overlay(&image, request.region)
   };
-
-  // 减小预览尺寸以提高编码速度 (从1400降到600)
-  let source_preview = preview_image(&source, 600);
-  let processed_preview = preview_image(&processed, 600);
   let mask_preview = preview_image(&mask_image, 600);
 
-  Ok(PreviewResult {
-    source_data_url: encode_jpeg_data_url(&source_preview, 82).map_err(|err| err.to_string())?,
-    processed_data_url: encode_jpeg_data_url(&processed_preview, 82)
-      .map_err(|err| err.to_string())?,
+  Ok(MaskPreviewResult {
     mask_data_url: encode_jpeg_data_url(&mask_preview, 82).map_err(|err| err.to_string())?,
-    output_width: processed.width(),
-    output_height: processed.height(),
+  }).inspect(|_| {
+    log::info!("mask 预览生成完成，总耗时 {} ms", started.elapsed().as_millis());
   })
 }
 
@@ -1801,17 +1973,62 @@ fn run_batch_cleanup(app: tauri::AppHandle, request: BatchRequest) -> Result<Bat
   }
 
   let engine = model_runtime::resolve_cleanup_engine(&app).map_err(|err| err.to_string())?;
+  let total = request.paths.len();
+  let batch_started = std::time::Instant::now();
+  log::info!(
+    "开始批处理: {} 张图片, cleanup_method={}, size_mode={}",
+    total,
+    request.cleanup_method,
+    request.size_handling_mode
+  );
   let output_dir =
     output_directory(request.output_dir.clone(), &request.paths[0]).map_err(|err| err.to_string())?;
   let mut entries = Vec::new();
   let mut success_count = 0usize;
   let mut failed_count = 0usize;
+  let preview_cache_map = request
+    .preview_caches
+    .iter()
+    .map(|cache| (cache.source_path.clone(), cache.cached_processed_path.clone()))
+    .collect::<std::collections::HashMap<_, _>>();
 
-  for source_path in request.paths {
+  let _ = app.emit(
+    "batch-progress",
+    BatchProgressPayload {
+      total,
+      completed: 0,
+      success_count: 0,
+      failed_count: 0,
+      current_file: request.paths[0].clone(),
+      stage: "started".to_string(),
+    },
+  );
+
+  for (index, source_path) in request.paths.into_iter().enumerate() {
     let path = PathBuf::from(&source_path);
     let output_path = build_unique_output_path(&output_dir, &path);
+    let item_started = std::time::Instant::now();
+    log::info!(
+      "批处理开始第 {}/{} 张: {}",
+      index + 1,
+      total,
+      path.display()
+    );
 
     let result = (|| -> Result<()> {
+      if let Some(cached_processed_path) = preview_cache_map.get(&source_path) {
+        if Path::new(cached_processed_path).exists() {
+          log::info!(
+            "批处理复用预览缓存第 {}/{} 张: {} -> {}",
+            index + 1,
+            total,
+            source_path,
+            cached_processed_path
+          );
+          fs::copy(cached_processed_path, &output_path)?;
+          return Ok(());
+        }
+      }
       let image = load_image(&path)?;
       let processed = apply_cleanup(
         Some(&app),
@@ -1833,6 +2050,13 @@ fn run_batch_cleanup(app: tauri::AppHandle, request: BatchRequest) -> Result<Bat
     match result {
       Ok(()) => {
         success_count += 1;
+        log::info!(
+          "批处理成功第 {}/{} 张: {} ({} ms)",
+          index + 1,
+          total,
+          path.display(),
+          item_started.elapsed().as_millis()
+        );
         entries.push(BatchEntry {
           source_path: source_path.clone(),
           output_path: output_path.to_string_lossy().to_string(),
@@ -1842,6 +2066,14 @@ fn run_batch_cleanup(app: tauri::AppHandle, request: BatchRequest) -> Result<Bat
       }
       Err(err) => {
         failed_count += 1;
+        log::error!(
+          "批处理失败第 {}/{} 张: {} -> {} ({} ms)",
+          index + 1,
+          total,
+          path.display(),
+          err,
+          item_started.elapsed().as_millis()
+        );
         entries.push(BatchEntry {
           source_path: source_path.clone(),
           output_path: output_path.to_string_lossy().to_string(),
@@ -1850,6 +2082,23 @@ fn run_batch_cleanup(app: tauri::AppHandle, request: BatchRequest) -> Result<Bat
         });
       }
     }
+
+    let stage = if index + 1 == total {
+      "completed"
+    } else {
+      "processing"
+    };
+    let _ = app.emit(
+      "batch-progress",
+      BatchProgressPayload {
+        total,
+        completed: index + 1,
+        success_count,
+        failed_count,
+        current_file: source_path.clone(),
+        stage: stage.to_string(),
+      },
+    );
   }
 
   Ok(BatchResult {
@@ -1858,6 +2107,15 @@ fn run_batch_cleanup(app: tauri::AppHandle, request: BatchRequest) -> Result<Bat
     success_count,
     failed_count,
     entries,
+  }).inspect(|result| {
+    log::info!(
+      "批处理完成: {} 张, 成功 {}, 失败 {}, 输出目录 {}, 总耗时 {} ms",
+      result.processed_count,
+      result.success_count,
+      result.failed_count,
+      result.output_dir,
+      batch_started.elapsed().as_millis()
+    );
   })
 }
 
@@ -1869,7 +2127,9 @@ pub fn run() {
       runtime_status,
       preload_model,
       import_paths,
+      start_preview_task,
       preview_cleanup,
+      preview_mask,
       run_batch_cleanup
     ])
     .plugin(tauri_plugin_dialog::init())

@@ -25,11 +25,40 @@ export type ImportSummary = {
 };
 
 export type PreviewResult = {
-  sourceDataUrl: string;
-  processedDataUrl: string;
-  maskDataUrl: string;
+  processedImagePath: string;
+  processedDisplayDataUrl: string;
   outputWidth: number;
   outputHeight: number;
+  cachedProcessedPath: string;
+};
+
+export type MaskPreviewResult = {
+  maskDataUrl: string;
+};
+
+export type PreviewTaskStarted = {
+  taskId: string;
+};
+
+export type PreviewTaskEvent = {
+  taskId: string;
+  stage: "started" | "model-loading" | "processing" | "saving" | "completed" | "error";
+  message: string;
+  result?: PreviewResult | null;
+  error?: string | null;
+};
+
+export type PreviewCache = {
+  sourcePath: string;
+  cachedProcessedPath: string;
+  signature: string;
+};
+
+export type PreviewCacheEntry = {
+  preview: PreviewResult;
+  maskDataUrl: string | null;
+  sourcePath: string;
+  signature: string;
 };
 
 export type BatchEntry = {
@@ -45,6 +74,15 @@ export type BatchResult = {
   successCount: number;
   failedCount: number;
   entries: BatchEntry[];
+};
+
+export type BatchProgressEvent = {
+  total: number;
+  completed: number;
+  successCount: number;
+  failedCount: number;
+  currentFile: string;
+  stage: "started" | "processing" | "completed";
 };
 
 export type Template = {

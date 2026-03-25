@@ -1,15 +1,21 @@
 import { useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useWorkspaceStore } from "./store/workspace";
-import { LoadingOverlay } from "./components/LoadingOverlay";
 import type {
   BatchResult,
+  BatchProgressEvent,
   CleanupMethod,
   HistoryEntry,
   ImportSummary,
   ImportedImage,
+  MaskPreviewResult,
+  PreviewCache,
+  PreviewCacheEntry,
+  PreviewTaskEvent,
+  PreviewTaskStarted,
   PreviewResult,
   Region,
   SizeHandlingMode,
@@ -50,7 +56,24 @@ type BatchRequest = {
   blurSigma: number;
   fillColor: string;
   outputDir?: string | null;
+  previewCaches: Array<{
+    sourcePath: string;
+    cachedProcessedPath: string;
+    signature: string;
+  }>;
 };
+
+type PreviewPhase = "idle" | "reading" | "warming-model" | "processing" | "rendering";
+type DragOverlayState = "idle" | "hover" | "importing";
+type PreviewTaskState = {
+  taskId: string;
+  stage: PreviewTaskEvent["stage"];
+  message: string;
+};
+
+function isPreviewTaskActive(stage?: PreviewTaskEvent["stage"]) {
+  return Boolean(stage && stage !== "completed" && stage !== "error");
+}
 
 const supportedFilters = [
   {
@@ -118,6 +141,68 @@ function formatBytes(value: number) {
   }
 
   return `${(value / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function formatDuration(ms: number) {
+  if (ms <= 0) {
+    return "少于 1 秒";
+  }
+
+  const totalSeconds = Math.round(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  if (minutes <= 0) {
+    return `${seconds} 秒`;
+  }
+
+  return `${minutes} 分 ${seconds} 秒`;
+}
+
+function waitForNextPaint() {
+  return new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
+}
+
+function waitForNextTask() {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(() => resolve(), 0);
+  });
+}
+
+async function waitForUiCommit() {
+  await waitForNextPaint();
+  await waitForNextTask();
+  await waitForNextPaint();
+}
+
+function waitForIdlePeriod(timeout = 3000) {
+  return new Promise<void>((resolve) => {
+    const idleCallback = (window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+    }).requestIdleCallback;
+
+    if (typeof idleCallback === "function") {
+      idleCallback(() => resolve(), { timeout });
+      return;
+    }
+
+    window.setTimeout(() => resolve(), Math.min(timeout, 1200));
+  });
+}
+
+function normalizePaths(paths: string[]) {
+  return [...paths].sort().join("::");
+}
+
+function logUi(event: string, detail?: Record<string, unknown>) {
+  const timestamp = new Date().toISOString();
+  if (detail) {
+    console.info(`[ui][${timestamp}] ${event}`, detail);
+    return;
+  }
+  console.info(`[ui][${timestamp}] ${event}`);
 }
 
 function clampPercent(value: number) {
@@ -274,6 +359,8 @@ function PreviewCard({
   dimensions,
   editable = false,
   onRegionChange,
+  loading = false,
+  loadingMessage,
 }: {
   title: string;
   image: string | null;
@@ -282,6 +369,8 @@ function PreviewCard({
   dimensions?: { width: number; height: number };
   editable?: boolean;
   onRegionChange?: (patch: Partial<Region>) => void;
+  loading?: boolean;
+  loadingMessage?: string;
 }) {
   const frameRef = useRef<HTMLDivElement | null>(null);
   const [frameSize, setFrameSize] = useState({ width: 0, height: 320 });
@@ -429,7 +518,13 @@ function PreviewCard({
         onPointerDown={handleCanvasPointerDown}
       >
         {image ? (
-          <img alt={title} className="h-[320px] w-full object-contain" src={image} />
+          <img
+            alt={title}
+            className={`h-[320px] w-full object-contain transition duration-300 ${
+              loading ? "scale-[0.985] opacity-45" : "opacity-100"
+            }`}
+            src={image}
+          />
         ) : (
           <div className="flex h-[320px] items-center justify-center text-sm text-muted">
             暂无图像
@@ -466,6 +561,16 @@ function PreviewCard({
             ) : null}
           </div>
         ) : null}
+        {loading ? (
+          <div className="absolute inset-0 flex items-center justify-center bg-white/72 backdrop-blur-[2px]">
+            <div className="rounded-2xl border border-primary/15 bg-white/95 px-5 py-4 text-center shadow-sm">
+              <div className="mx-auto h-9 w-9 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
+              <p className="mt-3 text-sm font-medium text-primary-strong">
+                {loadingMessage ?? "正在刷新预览..."}
+              </p>
+            </div>
+          </div>
+        ) : null}
       </div>
       {editable ? (
         <p className="mt-3 text-xs text-muted">
@@ -480,10 +585,12 @@ function ImageList({
   items,
   selectedImageId,
   onSelect,
+  previewTaskStateByImageId,
 }: {
   items: ImportedImage[];
   selectedImageId: string | null;
   onSelect: (id: string) => void;
+  previewTaskStateByImageId: Record<string, PreviewTaskState | undefined>;
 }) {
   return (
     <div className="space-y-3">
@@ -504,7 +611,18 @@ function ImageList({
             src={item.thumbnailDataUrl}
           />
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium">{item.name}</p>
+            <div className="flex items-start justify-between gap-2">
+              <p className="truncate text-sm font-medium">{item.name}</p>
+              {previewTaskStateByImageId[item.id] ? (
+                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                  {previewTaskStateByImageId[item.id]?.stage === "completed"
+                    ? "已缓存"
+                    : previewTaskStateByImageId[item.id]?.stage === "error"
+                      ? "失败"
+                      : "处理中"}
+                </span>
+              ) : null}
+            </div>
             <p className="mt-1 text-xs text-muted">
               {item.width} × {item.height} · {item.format.toUpperCase()}
             </p>
@@ -590,16 +708,115 @@ function HistoryPanel({ history }: { history: HistoryEntry[] }) {
   );
 }
 
+function BatchProgressPanel({
+  progress,
+  startedAt,
+  failedEntries,
+  showFailedEntries,
+  onToggleFailedEntries,
+}: {
+  progress: BatchProgressEvent | null;
+  startedAt: number | null;
+  failedEntries: BatchResult["entries"];
+  showFailedEntries: boolean;
+  onToggleFailedEntries: () => void;
+}) {
+  if (!progress) {
+    return null;
+  }
+
+  const percent = progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
+  const elapsedMs = startedAt ? Date.now() - startedAt : 0;
+  const remainingMs =
+    startedAt && progress.completed > 0 && progress.completed < progress.total
+      ? (elapsedMs / progress.completed) * (progress.total - progress.completed)
+      : 0;
+  const failedOnly = failedEntries.filter((entry) => !entry.success);
+
+  return (
+    <section className="mt-6 rounded-[24px] border border-primary/20 bg-[linear-gradient(180deg,_rgba(0,95,184,0.06),_rgba(255,255,255,0.96))] p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm font-semibold text-primary-strong">
+            {progress.stage === "completed" ? "批处理已完成" : "批处理任务进行中"}
+          </p>
+          <p className="mt-1 text-sm text-muted">
+            {progress.completed}/{progress.total} 张，成功 {progress.successCount}，失败 {progress.failedCount}
+          </p>
+        </div>
+        <span className="rounded-full bg-white px-3 py-1 font-mono text-xs text-primary-strong">
+          {percent}%
+        </span>
+      </div>
+      <div className="mt-4 h-2 overflow-hidden rounded-full bg-primary/10">
+        <div
+          className="h-full rounded-full bg-primary transition-all duration-500 ease-out"
+          style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
+        />
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted">
+        {progress.stage === "completed" ? (
+          startedAt ? (
+            <span className="rounded-full bg-white px-3 py-1">
+              总耗时 {formatDuration(elapsedMs)}
+            </span>
+          ) : null
+        ) : progress.completed > 0 ? (
+          <span className="rounded-full bg-white px-3 py-1">
+            预计剩余 {formatDuration(remainingMs)}
+          </span>
+        ) : (
+          <span className="rounded-full bg-white px-3 py-1">正在估算剩余时间</span>
+        )}
+      </div>
+      <p className="mt-3 truncate text-sm text-muted">当前文件: {progress.currentFile}</p>
+      {failedOnly.length > 0 ? (
+        <div className="mt-4">
+          <button
+            className="rounded-xl border border-[#efc1c1] bg-[#fff5f5] px-3 py-2 text-xs font-medium text-[#9a2020]"
+            type="button"
+            onClick={onToggleFailedEntries}
+          >
+            {showFailedEntries ? "收起失败项" : `查看失败项 (${failedOnly.length})`}
+          </button>
+          {showFailedEntries ? (
+            <div className="mt-3 max-h-40 space-y-2 overflow-y-auto rounded-xl border border-line bg-white p-3">
+              {failedOnly.map((entry) => (
+                <div key={`${entry.sourcePath}-${entry.outputPath}`} className="text-xs">
+                  <p className="truncate font-medium text-[#9a2020]">{entry.sourcePath}</p>
+                  <p className="mt-1 text-muted">{entry.error ?? "未知错误"}</p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 export default function App() {
   const [bootstrapState, setBootstrapState] = useState<BootstrapState | null>(null);
   const [resultViewMode, setResultViewMode] = useState<"processed" | "source" | "mask">("processed");
-  const [isDragActive, setIsDragActive] = useState(false);
-  const [loadingStage, setLoadingStage] = useState<{
-    visible: boolean;
-    stage: "importing" | "model-loading" | "reading" | "processing" | "generating" | "batch-processing";
-    progress?: number;
-    message?: string;
-  }>({ visible: false, stage: "importing" });
+  const [dragOverlayState, setDragOverlayState] = useState<DragOverlayState>("idle");
+  const [previewPhase, setPreviewPhase] = useState<PreviewPhase>("idle");
+  const [batchProgress, setBatchProgress] = useState<BatchProgressEvent | null>(null);
+  const [batchStartedAt, setBatchStartedAt] = useState<number | null>(null);
+  const [showFailedEntries, setShowFailedEntries] = useState(false);
+  const [maskPreviewDataUrl, setMaskPreviewDataUrl] = useState<string | null>(null);
+  const [maskPreviewImageId, setMaskPreviewImageId] = useState<string | null>(null);
+  const [previewCache, setPreviewCache] = useState<PreviewCache | null>(null);
+  const [previewCacheMap, setPreviewCacheMap] = useState<Record<string, PreviewCacheEntry>>({});
+  const [previewTaskStateByImageId, setPreviewTaskStateByImageId] = useState<
+    Record<string, PreviewTaskState | undefined>
+  >({});
+  const previewTaskContextByTaskIdRef = useRef<
+    Record<string, { imageId: string; sourcePath: string; signature: string }>
+  >({});
+  const lastImportSignatureRef = useRef("");
+  const lastImportAtRef = useRef(0);
+  const dragSessionLockedRef = useRef(false);
+  const modelWarmupAttemptedRef = useRef(false);
   const {
     importedImages,
     selectedImageId,
@@ -646,6 +863,7 @@ export default function App() {
   } = useWorkspaceStore();
 
   const selectedImage = importedImages.find((item) => item.id === selectedImageId) ?? null;
+  const selectedImageIdRef = useRef<string | null>(selectedImageId);
   const regionPixels = selectedImage
     ? {
         x: Math.round(region.x * selectedImage.width),
@@ -654,9 +872,18 @@ export default function App() {
         height: Math.round(region.height * selectedImage.height),
       }
     : null;
+  const selectedPreviewTaskState = selectedImage
+    ? (previewTaskStateByImageId[selectedImage.id] ?? null)
+    : null;
+  const isAnyPreviewTaskRunning = Object.values(previewTaskStateByImageId).some((task) =>
+    isPreviewTaskActive(task?.stage),
+  );
+  const isSelectedPreviewTaskRunning = isPreviewTaskActive(selectedPreviewTaskState?.stage);
+  const isSelectedMaskPreviewLoading = maskPreviewImageId === selectedImage?.id;
+  const isSelectedImageBusy = isSelectedPreviewTaskRunning || isSelectedMaskPreviewLoading;
   const workflowStage = isBatchRunning
     ? "batch_running"
-    : isPreviewLoading
+    : isSelectedImageBusy
       ? "preview_loading"
       : lastBatchResult
         ? "batch_complete"
@@ -673,94 +900,295 @@ export default function App() {
     batch_running: "正在批量导出",
     batch_complete: "批处理已完成",
   }[workflowStage];
+  const previewPhaseLabel = {
+    idle: "",
+    reading: "正在读取原图...",
+    "warming-model": "正在预热 AI 引擎...",
+    processing: "正在处理水印区域...",
+    rendering: "正在渲染结果...",
+  }[previewPhase];
+  const processedPreviewSrc = preview?.processedImagePath
+    ? convertFileSrc(preview.processedImagePath)
+    : null;
+  const processedPreviewDisplaySrc = preview?.processedDisplayDataUrl ?? processedPreviewSrc;
+  const currentPreviewSignature = selectedImage
+    ? JSON.stringify({
+        sourcePath: selectedImage.path,
+        region,
+        cleanupMethod,
+        sizeHandlingMode,
+        blurSigma,
+        fillColor,
+      })
+    : "";
+
+  useEffect(() => {
+    const shouldSetPreviewLoading = isAnyPreviewTaskRunning || maskPreviewImageId !== null;
+    if (isPreviewLoading !== shouldSetPreviewLoading) {
+      setPreviewLoading(shouldSetPreviewLoading);
+    }
+  }, [isAnyPreviewTaskRunning, isPreviewLoading, maskPreviewImageId, setPreviewLoading]);
+
+  useEffect(() => {
+    selectedImageIdRef.current = selectedImageId;
+  }, [selectedImageId]);
 
   useEffect(() => {
     invoke<BootstrapState>("bootstrap_state")
-      .then(setBootstrapState)
-      .catch(() => setBootstrapState(null));
+      .then((state) => {
+        logUi("bootstrap:success", {
+          platform: state.platform,
+          version: state.appVersion,
+        });
+        setBootstrapState(state);
+      })
+      .catch((error) => {
+        logUi("bootstrap:error", { error: String(error) });
+        setBootstrapState(null);
+      });
   }, []);
 
-  // 模型预加载：应用启动后自动加载
   useEffect(() => {
-    if (!bootstrapState) return;
-
     let mounted = true;
-    let progressInterval: ReturnType<typeof setInterval> | null = null;
+    let unlistenBatch: (() => void) | undefined;
+    let unlistenPreview: (() => void) | undefined;
 
-    const loadModel = async () => {
-      try {
-        setModelLoading(true);
-        setModelLoadProgress(0);
-
-        // 显示模型加载动画
-        setLoadingStage({ visible: true, stage: "model-loading", progress: 0 });
-
-        // 模拟进度（因为实际加载是阻塞的）
-        let progress = 0;
-        progressInterval = setInterval(() => {
-          if (progress < 90) {
-            progress += 5;
-            setModelLoadProgress(progress);
-            setLoadingStage({ visible: true, stage: "model-loading", progress });
-          }
-        }, 100);
-
-        const result = await invoke<ModelLoadState>("preload_model");
-
-        if (mounted) {
-          if (progressInterval) clearInterval(progressInterval);
-
-          setModelLoadProgress(100);
-          setLoadingStage({ visible: true, stage: "model-loading", progress: 100 });
-
-          // 短暂显示100%后再隐藏
-          setTimeout(() => {
-            if (mounted) {
-              setLoadingStage({ visible: false, stage: "model-loading" });
-              setModelLoading(false);
-              if (result.isLoaded) {
-                setModelLoaded(true);
-                setNotification({
-                  kind: "success",
-                  message: "AI 模型已就绪，可以开始处理图片。",
-                });
-              }
-            }
-          }, 500);
-        }
-      } catch (error) {
-        if (mounted) {
-          if (progressInterval) clearInterval(progressInterval);
-          setModelLoading(false);
-          setLoadingStage({ visible: false, stage: "model-loading" });
-          console.error("模型预加载失败:", error);
-          // 不显示错误通知，因为首次使用时会在实际处理时加载
-        }
+    listen<BatchProgressEvent>("batch-progress", (event) => {
+      if (!mounted) {
+        return;
       }
-    };
+      logUi("batch-progress:event", event.payload);
+      setBatchProgress(event.payload);
+    })
+      .then((fn) => {
+        unlistenBatch = fn;
+        logUi("batch-progress:listener-ready");
+      })
+      .catch((error) => {
+        logUi("batch-progress:listener-error", { error: String(error) });
+        console.error("批处理进度监听失败:", error);
+      });
 
-    loadModel();
+    listen<PreviewTaskEvent>("preview-task", (event) => {
+      if (!mounted) {
+        return;
+      }
+
+      const payload = event.payload;
+      logUi("preview-task:event", payload as unknown as Record<string, unknown>);
+      const context = previewTaskContextByTaskIdRef.current[payload.taskId];
+      if (!context) {
+        return;
+      }
+      const isCurrentImage = selectedImageIdRef.current === context.imageId;
+
+      setPreviewTaskStateByImageId((current) => ({
+        ...current,
+        [context.imageId]: {
+          taskId: payload.taskId,
+          stage: payload.stage,
+          message: payload.message,
+        },
+      }));
+
+      switch (payload.stage) {
+        case "model-loading":
+          if (isCurrentImage) {
+            setPreviewPhase("warming-model");
+          }
+          break;
+        case "processing":
+          if (isCurrentImage) {
+            setPreviewPhase("processing");
+          }
+          break;
+        case "saving":
+          if (isCurrentImage) {
+            setPreviewPhase("rendering");
+          }
+          break;
+        case "completed":
+          if (payload.result) {
+            const { imageId, sourcePath, signature } = context;
+            if (isCurrentImage) {
+              setPreview(payload.result);
+            }
+            const cacheEntry = {
+              preview: payload.result,
+              maskDataUrl: null,
+              sourcePath,
+              signature,
+            } satisfies PreviewCacheEntry;
+            setPreviewCache({
+              sourcePath,
+              cachedProcessedPath: payload.result.cachedProcessedPath,
+              signature,
+            });
+            setPreviewCacheMap((current) => ({
+              ...current,
+              [signature]: cacheEntry,
+            }));
+            setPreviewTaskStateByImageId((current) => ({
+              ...current,
+              [imageId]: {
+                taskId: payload.taskId,
+                stage: "completed",
+                message: payload.message,
+              },
+            }));
+          }
+          delete previewTaskContextByTaskIdRef.current[payload.taskId];
+          if (isCurrentImage) {
+            setPreviewPhase("idle");
+            setPreviewLoading(false);
+            setNotification({ kind: "success", message: "样张预览已更新，可以继续检查效果或直接批量导出。" });
+          }
+          break;
+        case "error":
+          setPreviewTaskStateByImageId((current) => ({
+            ...current,
+            [context.imageId]: {
+              taskId: payload.taskId,
+              stage: "error",
+              message: payload.error ?? payload.message,
+            },
+          }));
+          delete previewTaskContextByTaskIdRef.current[payload.taskId];
+          if (isCurrentImage) {
+            setPreviewPhase("idle");
+            setPreviewLoading(false);
+            setNotification({ kind: "error", message: `预览生成失败：${payload.error ?? payload.message}` });
+          }
+          break;
+        default:
+          break;
+      }
+    })
+      .then((fn) => {
+        unlistenPreview = fn;
+        logUi("preview-task:listener-ready");
+      })
+      .catch((error) => {
+        logUi("preview-task:listener-error", { error: String(error) });
+      });
 
     return () => {
       mounted = false;
-      if (progressInterval) clearInterval(progressInterval);
+      unlistenBatch?.();
+      unlistenPreview?.();
     };
-  }, [bootstrapState]);
+  }, [setPreview]);
+
+  useEffect(() => {
+    setShowFailedEntries(false);
+  }, [lastBatchResult]);
+
+  useEffect(() => {
+    if (!bootstrapState || modelWarmupAttemptedRef.current || isModelLoaded || isModelLoading) {
+      return;
+    }
+
+    if (isImporting || isAnyPreviewTaskRunning || isBatchRunning || dragOverlayState !== "idle") {
+      return;
+    }
+
+    let cancelled = false;
+    modelWarmupAttemptedRef.current = true;
+
+    const warmupInBackground = async () => {
+      logUi("model-preload:background-scheduled");
+      await waitForIdlePeriod(4000);
+      if (cancelled) {
+        return;
+      }
+      logUi("model-preload:background-start");
+      await ensureModelReady("preview");
+    };
+
+    void warmupInBackground();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    bootstrapState,
+    dragOverlayState,
+    isAnyPreviewTaskRunning,
+    isBatchRunning,
+    isImporting,
+    isModelLoaded,
+    isModelLoading,
+  ]);
+
+  useEffect(() => {
+    setMaskPreviewDataUrl(null);
+    setPreviewCache(null);
+    if (resultViewMode === "mask") {
+      setResultViewMode("processed");
+    }
+  }, [
+    blurSigma,
+    cleanupMethod,
+    fillColor,
+    region.height,
+    region.width,
+    region.x,
+    region.y,
+    resultViewMode,
+    selectedImageId,
+    sizeHandlingMode,
+  ]);
+
+  useEffect(() => {
+    if (!currentPreviewSignature) {
+      return;
+    }
+
+    const cached = previewCacheMap[currentPreviewSignature];
+    if (!cached) {
+      return;
+    }
+
+    logUi("preview-cache:restore", {
+      sourcePath: cached.sourcePath,
+      hasMask: Boolean(cached.maskDataUrl),
+    });
+    setPreview(cached.preview);
+    setPreviewCache({
+      sourcePath: cached.sourcePath,
+      cachedProcessedPath: cached.preview.cachedProcessedPath,
+      signature: cached.signature,
+    });
+    setMaskPreviewDataUrl(cached.maskDataUrl);
+  }, [currentPreviewSignature, previewCacheMap, setPreview]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
 
     getCurrentWindow()
       .onDragDropEvent(async (event) => {
+        logUi("drag-drop:event", { type: event.payload.type });
+
         if (event.payload.type === "over") {
-          setIsDragActive(true);
+          if (dragSessionLockedRef.current || isImporting) {
+            logUi("drag-drop:over-ignored", {
+              isImporting,
+              dragSessionLocked: dragSessionLockedRef.current,
+            });
+            return;
+          }
+          logUi("drag-drop:over");
+          setDragOverlayState("hover");
           return;
         }
 
         if (event.payload.type === "drop") {
-          setIsDragActive(false);
+          logUi("drag-drop:drop", { pathCount: event.payload.paths.length });
+          dragSessionLockedRef.current = true;
+          setDragOverlayState("importing");
           setImporting(true);
           try {
+            await waitForUiCommit();
             await importPaths(event.payload.paths);
             setNotification({
               kind: "success",
@@ -770,16 +1198,22 @@ export default function App() {
             setNotification({ kind: "error", message: `拖拽导入失败：${String(error)}` });
           } finally {
             setImporting(false);
+            setDragOverlayState("idle");
+            logUi("drag-drop:drop-finished");
           }
           return;
         }
 
-        setIsDragActive(false);
+        logUi("drag-drop:leave");
+        dragSessionLockedRef.current = false;
+        setDragOverlayState("idle");
       })
       .then((fn) => {
         unlisten = fn;
+        logUi("drag-drop:listener-ready");
       })
       .catch(() => {
+        logUi("drag-drop:listener-error");
         setNotification({
           kind: "info",
           message: "当前环境未启用窗口拖拽监听，请先使用按钮导入。",
@@ -792,14 +1226,43 @@ export default function App() {
   }, []);
 
   async function importPaths(paths: string[]) {
+    const startedAt = performance.now();
+    logUi("import:start", { pathCount: paths.length });
+    const signature = normalizePaths(paths);
+    const now = Date.now();
+    if (
+      signature.length > 0 &&
+      signature === lastImportSignatureRef.current &&
+      now - lastImportAtRef.current < 1500
+    ) {
+      logUi("import:dedup-skipped", { pathCount: paths.length });
+      return;
+    }
+    lastImportSignatureRef.current = signature;
+    lastImportAtRef.current = now;
+    setBatchProgress(null);
+    setBatchStartedAt(null);
+    setShowFailedEntries(false);
+    setMaskPreviewDataUrl(null);
+    setPreviewCache(null);
+    setPreviewCacheMap({});
+    setPreviewTaskStateByImageId({});
+    previewTaskContextByTaskIdRef.current = {};
     const summary = await invoke<ImportSummary>("import_paths", { paths });
+    logUi("import:done", {
+      itemCount: summary.items.length,
+      warningCount: summary.warnings.length,
+      elapsedMs: Math.round(performance.now() - startedAt),
+    });
     applyImportSummary(summary);
   }
 
   async function importWithDialog(mode: "files" | "folder") {
+    logUi("import-dialog:open", { mode });
     setImporting(true);
 
     try {
+      await waitForUiCommit();
       const selected = await open(
         mode === "folder"
           ? {
@@ -816,15 +1279,20 @@ export default function App() {
       );
 
       if (!selected) {
+        logUi("import-dialog:cancelled", { mode });
         return;
       }
 
       const paths = Array.isArray(selected) ? selected : [selected];
+      logUi("import-dialog:selected", { mode, pathCount: paths.length });
+      await waitForUiCommit();
       await importPaths(paths);
     } catch (error) {
+      logUi("import-dialog:error", { mode, error: String(error) });
       setNotification({ kind: "error", message: `导入失败：${String(error)}` });
     } finally {
       setImporting(false);
+      logUi("import-dialog:finish", { mode });
     }
   }
 
@@ -842,37 +1310,69 @@ export default function App() {
     }
   }
 
-  async function refreshPreview() {
-    if (!selectedImage) {
+  async function ensureModelReady(reason: "preview" | "batch") {
+    if (isModelLoaded) {
+      return true;
+    }
+
+    if (isModelLoading) {
+      logUi("model-preload:already-loading", { reason });
+      return false;
+    }
+
+    logUi("model-preload:lazy-start", { reason });
+    setModelLoading(true);
+    setModelLoadProgress(0);
+    try {
+      if (reason !== "preview") {
+        await waitForUiCommit();
+      }
+      const result = await invoke<ModelLoadState>("preload_model");
+      setModelLoadProgress(100);
+      logUi("model-preload:lazy-done", { reason, ...result });
+      if (result.isLoaded) {
+        setModelLoaded(true);
+      }
+      return result.isLoaded;
+    } catch (error) {
+      logUi("model-preload:lazy-error", { reason, error: String(error) });
+      return false;
+    } finally {
+      setModelLoading(false);
+    }
+  }
+
+  async function refreshPreview(trigger: "manual" | "auto" = "manual") {
+    if (!selectedImage || isSelectedImageBusy) {
       return;
     }
 
-    setPreviewLoading(true);
+    logUi("preview:start", {
+      trigger,
+      imageId: selectedImage.id,
+      cleanupMethod,
+      sizeHandlingMode,
+    });
+    setMaskPreviewDataUrl(null);
+    setPreviewPhase("reading");
+    setPreviewTaskStateByImageId((current) => ({
+      ...current,
+      [selectedImage.id]: {
+        taskId: current[selectedImage.id]?.taskId ?? "",
+        stage: "started",
+        message: "预览任务已开始",
+      },
+    }));
 
     try {
-      // 阶段 1：读取图片
-      setLoadingStage({ visible: true, stage: "reading", message: "正在读取原始图像..." });
-
-      // 如果模型未加载，先加载模型
       if (!isModelLoaded && !isModelLoading) {
-        setLoadingStage({ visible: true, stage: "model-loading", progress: 0, message: "首次使用，正在加载 AI 模型..." });
-        try {
-          await invoke<ModelLoadState>("preload_model");
-          setModelLoaded(true);
-        } catch {
-          // 模型加载失败，继续尝试（会在实际推理时加载）
-        }
+        setPreviewPhase("warming-model");
+        await waitForUiCommit();
+        await ensureModelReady("preview");
       }
 
-      // 阶段 2：AI 处理
-      setLoadingStage({
-        visible: true,
-        stage: "processing",
-        message: isModelLoaded ? "AI 正在修复水印区域..." : "正在加载模型并处理...",
-        progress: isModelLoaded ? 50 : undefined,
-      });
-
-      const result = await invoke<PreviewResult>("preview_cleanup", {
+      await waitForUiCommit();
+      const started = await invoke<PreviewTaskStarted>("start_preview_task", {
         request: {
           path: selectedImage.path,
           region,
@@ -884,18 +1384,82 @@ export default function App() {
           fillColor,
         } satisfies PreviewRequest,
       });
-
-      // 阶段 3：生成预览
-      setLoadingStage({ visible: true, stage: "generating", message: "正在渲染预览图像...", progress: 90 });
-
-      setPreview(result);
-      setLoadingStage({ visible: false, stage: "generating" });
-      setNotification({ kind: "success", message: "样张预览已更新，可以继续检查效果或直接批量导出。" });
+      previewTaskContextByTaskIdRef.current[started.taskId] = {
+        imageId: selectedImage.id,
+        sourcePath: selectedImage.path,
+        signature: currentPreviewSignature,
+      };
+      setPreviewTaskStateByImageId((current) => ({
+        ...current,
+        [selectedImage.id]: {
+          taskId: started.taskId,
+          stage: "started",
+          message: "预览任务已开始",
+        },
+      }));
+      setPreviewPhase("processing");
+      logUi("preview:task-started", { trigger, taskId: started.taskId });
     } catch (error) {
-      setLoadingStage({ visible: false, stage: "processing" });
+      logUi("preview:error", { trigger, error: String(error) });
+      setPreviewPhase("idle");
       setNotification({ kind: "error", message: `预览生成失败：${String(error)}` });
+    }
+  }
+
+  async function refreshMaskPreview() {
+    if (!selectedImage || isSelectedImageBusy) {
+      return;
+    }
+
+    const startedAt = performance.now();
+    logUi("preview-mask:start", {
+      imageId: selectedImage.id,
+      cleanupMethod,
+      sizeHandlingMode,
+    });
+    setMaskPreviewImageId(selectedImage.id);
+    setPreviewPhase("processing");
+
+    try {
+      await waitForUiCommit();
+      const result = await invoke<MaskPreviewResult>("preview_mask", {
+        request: {
+          path: selectedImage.path,
+          region,
+          baseWidth: selectedImage.width,
+          baseHeight: selectedImage.height,
+          sizeHandlingMode,
+          cleanupMethod,
+          blurSigma,
+          fillColor,
+        } satisfies PreviewRequest,
+      });
+      setMaskPreviewDataUrl(result.maskDataUrl);
+      setResultViewMode("mask");
+      if (preview && currentPreviewSignature) {
+        setPreviewCacheMap((current) => {
+          const existing = current[currentPreviewSignature];
+          if (!existing) {
+            return current;
+          }
+          return {
+            ...current,
+            [currentPreviewSignature]: {
+              ...existing,
+              maskDataUrl: result.maskDataUrl,
+            },
+          };
+        });
+      }
+      logUi("preview-mask:done", {
+        elapsedMs: Math.round(performance.now() - startedAt),
+      });
+    } catch (error) {
+      logUi("preview-mask:error", { error: String(error) });
+      setNotification({ kind: "error", message: `Mask 预览生成失败：${String(error)}` });
     } finally {
-      setPreviewLoading(false);
+      setPreviewPhase("idle");
+      setMaskPreviewImageId(null);
     }
   }
 
@@ -913,17 +1477,29 @@ export default function App() {
       return;
     }
 
+    logUi("batch:start", {
+      pathCount: paths.length,
+      cleanupMethod,
+      sizeHandlingMode,
+      reusePreviewCount: Object.values(previewCacheMap).length,
+    });
     setBatchRunning(true);
+    setBatchStartedAt(Date.now());
+    setBatchProgress({
+      total: paths.length,
+      completed: 0,
+      successCount: 0,
+      failedCount: 0,
+      currentFile: paths[0],
+      stage: "started",
+    });
 
     try {
-      // 显示批量处理进度
-      setLoadingStage({
-        visible: true,
-        stage: "batch-processing",
-        message: `正在处理 ${paths.length} 张图片...`,
-        progress: 0,
-      });
-
+      if (!isModelLoaded && !isModelLoading) {
+        await waitForUiCommit();
+        await ensureModelReady("batch");
+      }
+      await waitForUiCommit();
       const result = await invoke<BatchResult>("run_batch_cleanup", {
         request: {
           paths,
@@ -935,10 +1511,14 @@ export default function App() {
           blurSigma,
           fillColor,
           outputDir: outputDir || null,
+          previewCaches: Object.values(previewCacheMap).map((cache) => ({
+            sourcePath: cache.sourcePath,
+            cachedProcessedPath: cache.preview.cachedProcessedPath,
+            signature: cache.signature,
+          })),
         } satisfies BatchRequest,
       });
 
-      setLoadingStage({ visible: false, stage: "batch-processing" });
       setLastBatchResult(result);
       addHistory({
         id: crypto.randomUUID(),
@@ -953,8 +1533,16 @@ export default function App() {
         kind: "success",
         message: `批处理完成：共 ${result.processedCount} 张，${result.successCount} 成功，${result.failedCount} 失败。`,
       });
+      logUi("batch:done", {
+        processedCount: result.processedCount,
+        successCount: result.successCount,
+        failedCount: result.failedCount,
+        outputDir: result.outputDir,
+      });
     } catch (error) {
-      setLoadingStage({ visible: false, stage: "batch-processing" });
+      setBatchProgress(null);
+      setBatchStartedAt(null);
+      logUi("batch:error", { error: String(error) });
       setNotification({ kind: "error", message: `批处理失败：${String(error)}` });
     } finally {
       setBatchRunning(false);
@@ -994,26 +1582,35 @@ export default function App() {
   return (
     <div
       className={`min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(0,95,184,0.18),_transparent_28%),linear-gradient(180deg,_#f8fbff_0%,_#eef3f8_100%)] text-ink ${
-        isDragActive ? "ring-4 ring-primary/20" : ""
+        dragOverlayState === "hover" ? "ring-4 ring-primary/20" : ""
       }`}
     >
-      {isDragActive ? (
-        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-primary/10 backdrop-blur-sm">
-          <div className="rounded-[28px] border border-primary/30 bg-white px-8 py-6 text-center shadow-ambient">
-            <p className="text-sm uppercase tracking-[0.28em] text-primary-strong">拖拽导入</p>
-            <p className="mt-2 text-2xl font-semibold">释放鼠标即可导入图片或文件夹</p>
-            <p className="mt-2 text-sm text-muted">当前会自动读取拖入路径下的 `png / jpg / jpeg / webp` 图片。</p>
+      {dragOverlayState === "hover" ? (
+        <div className="pointer-events-none fixed inset-x-0 top-6 z-50 flex justify-center px-6">
+          <div className="rounded-full border border-primary/25 bg-white/96 px-5 py-3 shadow-ambient backdrop-blur">
+            <div className="flex items-center gap-3">
+              <div className="h-2.5 w-2.5 rounded-full bg-primary" />
+              <p className="text-sm font-medium text-primary-strong">
+                松手即可导入图片或文件夹
+              </p>
+            </div>
           </div>
         </div>
       ) : null}
 
-      {/* 加载动画遮罩层 */}
-      <LoadingOverlay
-        visible={loadingStage.visible}
-        stage={loadingStage.stage}
-        progress={loadingStage.progress}
-        message={loadingStage.message}
-      />
+      {dragOverlayState === "importing" || isImporting ? (
+        <div className="pointer-events-none fixed inset-0 z-40 flex items-start justify-center bg-white/12 pt-10">
+          <div className="rounded-2xl border border-primary/20 bg-white/96 px-5 py-3 shadow-ambient backdrop-blur">
+            <div className="flex items-center gap-3">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
+              <div>
+                <p className="text-sm font-medium text-primary-strong">正在导入图片</p>
+                <p className="text-xs text-muted">拖拽态已结束，正在读取文件与生成缩略图</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid min-h-screen grid-cols-[280px_minmax(0,1fr)_360px] gap-4 p-4">
         <aside className="rounded-panel border border-white/70 bg-surface-rail/75 p-5 shadow-ambient backdrop-blur">
@@ -1032,6 +1629,23 @@ export default function App() {
                 {bootstrapState.platform} · {bootstrapState.appVersion}
               </p>
             ) : null}
+            <div className="mt-4 flex flex-wrap gap-2">
+              <span
+                className={`rounded-full px-3 py-1 text-xs ${
+                  isModelLoaded
+                    ? "bg-[#edf7f1] text-[#17603a]"
+                    : isModelLoading
+                      ? "bg-primary/10 text-primary"
+                      : "bg-surface text-muted"
+                }`}
+              >
+                {isModelLoaded
+                  ? "AI 引擎已就绪"
+                  : isModelLoading
+                    ? `AI 引擎预热中 ${Math.min(99, Math.round(modelLoadProgress))}%`
+                    : "AI 引擎待启动"}
+              </span>
+            </div>
           </div>
 
           <div className="space-y-3">
@@ -1076,15 +1690,45 @@ export default function App() {
           <div className="mt-6 rounded-2xl border border-line bg-white p-4">
             <div className="flex items-center justify-between">
               <p className="text-sm font-medium">已导入图片</p>
-              <p className="rounded-full bg-surface px-3 py-1 text-xs text-muted">
-                {importedImages.length}
-              </p>
+              <div className="flex items-center gap-2">
+                {isImporting ? (
+                  <span className="rounded-full bg-primary/10 px-3 py-1 text-xs text-primary">
+                    导入中
+                  </span>
+                ) : null}
+                <p className="rounded-full bg-surface px-3 py-1 text-xs text-muted">
+                  {importedImages.length}
+                </p>
+              </div>
             </div>
             <div className="mt-4 max-h-[calc(100vh-380px)] overflow-y-auto pr-1">
               {importedImages.length === 0 ? (
-                <p className="text-sm text-muted">先导入图片或文件夹，再开始调整区域和预览。</p>
+                isImporting ? (
+                  <div className="space-y-3">
+                    {[0, 1, 2].map((item) => (
+                      <div
+                        key={item}
+                        className="flex animate-pulse gap-3 rounded-2xl border border-line bg-surface p-3"
+                      >
+                        <div className="h-16 w-16 rounded-xl bg-white" />
+                        <div className="flex-1 space-y-2 py-1">
+                          <div className="h-3 w-2/3 rounded-full bg-white" />
+                          <div className="h-3 w-1/2 rounded-full bg-white" />
+                          <div className="h-3 w-1/3 rounded-full bg-white" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted">先导入图片或文件夹，再开始调整区域和预览。</p>
+                )
               ) : (
                 <>
+                  {isImporting ? (
+                    <div className="mb-3 rounded-xl border border-primary/15 bg-primary/5 px-3 py-2 text-xs text-primary-strong">
+                      正在补充导入内容，图片列表会继续更新。
+                    </div>
+                  ) : null}
                   <div className="mb-3 flex items-center justify-between gap-2">
                     <p className="text-xs text-muted">可单独移除当前图片，或直接清空整个任务。</p>
                     {selectedImageId ? (
@@ -1101,6 +1745,7 @@ export default function App() {
                     items={importedImages}
                     selectedImageId={selectedImageId}
                     onSelect={selectImage}
+                    previewTaskStateByImageId={previewTaskStateByImageId}
                   />
                 </>
               )}
@@ -1167,6 +1812,14 @@ export default function App() {
             </section>
           ) : null}
 
+          <BatchProgressPanel
+            progress={batchProgress}
+            startedAt={batchStartedAt}
+            failedEntries={lastBatchResult?.entries ?? []}
+            showFailedEntries={showFailedEntries}
+            onToggleFailedEntries={() => setShowFailedEntries((value) => !value)}
+          />
+
           {importedImages.length === 0 ? (
             <section className="mt-6 rounded-[28px] border border-dashed border-primary/35 bg-[linear-gradient(180deg,_rgba(0,95,184,0.06),_rgba(255,255,255,0.96))] p-8">
               <p className="text-sm uppercase tracking-[0.28em] text-primary-strong">Step 1</p>
@@ -1229,7 +1882,7 @@ export default function App() {
                 <article className="rounded-2xl border border-line bg-surface px-4 py-4">
                   <p className="text-xs uppercase tracking-[0.22em] text-muted">预览状态</p>
                   <p className="mt-2 text-sm font-medium">
-                    {isPreviewLoading
+                    {isSelectedImageBusy
                       ? "生成中"
                       : preview
                         ? "已生成"
@@ -1247,7 +1900,7 @@ export default function App() {
               <section className="mt-6 grid gap-4 xl:grid-cols-2">
                 <PreviewCard
                   title="原图 / 区域"
-                  image={preview?.sourceDataUrl ?? selectedImage?.thumbnailDataUrl ?? null}
+                  image={selectedImage?.thumbnailDataUrl ?? null}
                   region={region}
                   selected={Boolean(selectedImage)}
                   editable
@@ -1268,10 +1921,10 @@ export default function App() {
                   }
                   image={
                     resultViewMode === "processed"
-                      ? (preview?.processedDataUrl ?? null)
+                      ? processedPreviewDisplaySrc
                       : resultViewMode === "mask"
-                        ? (preview?.maskDataUrl ?? null)
-                      : (preview?.sourceDataUrl ?? selectedImage?.thumbnailDataUrl ?? null)
+                        ? (maskPreviewDataUrl ?? null)
+                      : (selectedImage?.thumbnailDataUrl ?? null)
                   }
                   selected={false}
                   dimensions={
@@ -1281,6 +1934,8 @@ export default function App() {
                         ? { width: selectedImage.width, height: selectedImage.height }
                         : undefined
                   }
+                  loading={isSelectedImageBusy}
+                  loadingMessage={previewPhaseLabel}
                 />
               </section>
 
@@ -1289,10 +1944,10 @@ export default function App() {
                   <button
                     className="rounded-2xl bg-primary px-4 py-3 text-sm font-medium text-white disabled:opacity-60"
                     type="button"
-                    disabled={!selectedImage || isPreviewLoading}
-                    onClick={refreshPreview}
+                    disabled={!selectedImage || isSelectedImageBusy}
+                    onClick={() => void refreshPreview("manual")}
                   >
-                    {isPreviewLoading ? "生成中..." : "刷新样张预览"}
+                    {isSelectedPreviewTaskRunning ? "生成中..." : "刷新样张预览"}
                   </button>
                   <button
                     className="rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium disabled:opacity-60"
@@ -1321,16 +1976,25 @@ export default function App() {
                   <button
                     className="rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium disabled:opacity-60"
                     type="button"
-                    disabled={!preview}
-                    onClick={() => setResultViewMode("mask")}
+                    disabled={!selectedImage || isSelectedImageBusy}
+                    onClick={() => {
+                      if (maskPreviewDataUrl) {
+                        setResultViewMode("mask");
+                        return;
+                      }
+                      void refreshMaskPreview();
+                    }}
                   >
-                    查看 Mask
+                    {isSelectedMaskPreviewLoading ? "生成 Mask 中..." : "查看 Mask"}
                   </button>
                 </div>
 
                 <p className="mt-3 text-sm text-muted">
-                  预览固定为两张图并排：左边原图带选区，右边可切换查看处理后效果、原图参考和 Mask 识别结果。
+                  导入后不会自动跑预览。先调整区域和参数，再手动点击“刷新样张预览”，这样可以减少等待和误触发。
                 </p>
+                {isSelectedImageBusy ? (
+                  <p className="mt-2 text-sm text-primary-strong">{previewPhaseLabel}</p>
+                ) : null}
 
                 {lastBatchResult ? (
                   <div className="mt-4 rounded-2xl border border-line bg-white p-4 text-sm">
@@ -1348,16 +2012,9 @@ export default function App() {
                         >
                           仅重试失败项
                         </button>
-                        <div className="max-h-40 space-y-2 overflow-y-auto rounded-xl border border-line bg-surface p-3">
-                          {lastBatchResult.entries
-                            .filter((entry) => !entry.success)
-                            .map((entry) => (
-                              <div key={`${entry.sourcePath}-${entry.outputPath}`} className="text-xs">
-                                <p className="truncate font-medium text-[#9a2020]">{entry.sourcePath}</p>
-                                <p className="mt-1 text-muted">{entry.error ?? "未知错误"}</p>
-                              </div>
-                            ))}
-                        </div>
+                        <p className="text-xs text-muted">
+                          失败详情已收纳到上方批处理任务面板，可展开查看。
+                        </p>
                       </div>
                     ) : null}
                   </div>
