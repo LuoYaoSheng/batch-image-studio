@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useWorkspaceStore } from "./store/workspace";
+import { LoadingOverlay } from "./components/LoadingOverlay";
 import type {
   BatchResult,
   CleanupMethod,
@@ -20,6 +21,12 @@ type BootstrapState = {
   appVersion: string;
   platform: string;
   capabilities: string[];
+};
+
+type ModelLoadState = {
+  isLoaded: boolean;
+  isLoading: boolean;
+  engine: string;
 };
 
 type PreviewRequest = {
@@ -587,6 +594,12 @@ export default function App() {
   const [bootstrapState, setBootstrapState] = useState<BootstrapState | null>(null);
   const [resultViewMode, setResultViewMode] = useState<"processed" | "source" | "mask">("processed");
   const [isDragActive, setIsDragActive] = useState(false);
+  const [loadingStage, setLoadingStage] = useState<{
+    visible: boolean;
+    stage: "importing" | "model-loading" | "reading" | "processing" | "generating" | "batch-processing";
+    progress?: number;
+    message?: string;
+  }>({ visible: false, stage: "importing" });
   const {
     importedImages,
     selectedImageId,
@@ -605,6 +618,9 @@ export default function App() {
     isBatchRunning,
     notification,
     lastBatchResult,
+    isModelLoading,
+    isModelLoaded,
+    modelLoadProgress,
     setCleanupMethod,
     setSizeHandlingMode,
     setBlurSigma,
@@ -624,6 +640,9 @@ export default function App() {
     saveTemplate,
     applyTemplate,
     addHistory,
+    setModelLoading,
+    setModelLoaded,
+    setModelLoadProgress,
   } = useWorkspaceStore();
 
   const selectedImage = importedImages.find((item) => item.id === selectedImageId) ?? null;
@@ -660,6 +679,73 @@ export default function App() {
       .then(setBootstrapState)
       .catch(() => setBootstrapState(null));
   }, []);
+
+  // 模型预加载：应用启动后自动加载
+  useEffect(() => {
+    if (!bootstrapState) return;
+
+    let mounted = true;
+    let progressInterval: ReturnType<typeof setInterval> | null = null;
+
+    const loadModel = async () => {
+      try {
+        setModelLoading(true);
+        setModelLoadProgress(0);
+
+        // 显示模型加载动画
+        setLoadingStage({ visible: true, stage: "model-loading", progress: 0 });
+
+        // 模拟进度（因为实际加载是阻塞的）
+        let progress = 0;
+        progressInterval = setInterval(() => {
+          if (progress < 90) {
+            progress += 5;
+            setModelLoadProgress(progress);
+            setLoadingStage({ visible: true, stage: "model-loading", progress });
+          }
+        }, 100);
+
+        const result = await invoke<ModelLoadState>("preload_model");
+
+        if (mounted) {
+          if (progressInterval) clearInterval(progressInterval);
+
+          setModelLoadProgress(100);
+          setLoadingStage({ visible: true, stage: "model-loading", progress: 100 });
+
+          // 短暂显示100%后再隐藏
+          setTimeout(() => {
+            if (mounted) {
+              setLoadingStage({ visible: false, stage: "model-loading" });
+              setModelLoading(false);
+              if (result.isLoaded) {
+                setModelLoaded(true);
+                setNotification({
+                  kind: "success",
+                  message: "AI 模型已就绪，可以开始处理图片。",
+                });
+              }
+            }
+          }, 500);
+        }
+      } catch (error) {
+        if (mounted) {
+          if (progressInterval) clearInterval(progressInterval);
+          setModelLoading(false);
+          setLoadingStage({ visible: false, stage: "model-loading" });
+          console.error("模型预加载失败:", error);
+          // 不显示错误通知，因为首次使用时会在实际处理时加载
+        }
+      }
+    };
+
+    loadModel();
+
+    return () => {
+      mounted = false;
+      if (progressInterval) clearInterval(progressInterval);
+    };
+  }, [bootstrapState]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -764,6 +850,28 @@ export default function App() {
     setPreviewLoading(true);
 
     try {
+      // 阶段 1：读取图片
+      setLoadingStage({ visible: true, stage: "reading", message: "正在读取原始图像..." });
+
+      // 如果模型未加载，先加载模型
+      if (!isModelLoaded && !isModelLoading) {
+        setLoadingStage({ visible: true, stage: "model-loading", progress: 0, message: "首次使用，正在加载 AI 模型..." });
+        try {
+          await invoke<ModelLoadState>("preload_model");
+          setModelLoaded(true);
+        } catch {
+          // 模型加载失败，继续尝试（会在实际推理时加载）
+        }
+      }
+
+      // 阶段 2：AI 处理
+      setLoadingStage({
+        visible: true,
+        stage: "processing",
+        message: isModelLoaded ? "AI 正在修复水印区域..." : "正在加载模型并处理...",
+        progress: isModelLoaded ? 50 : undefined,
+      });
+
       const result = await invoke<PreviewResult>("preview_cleanup", {
         request: {
           path: selectedImage.path,
@@ -776,9 +884,15 @@ export default function App() {
           fillColor,
         } satisfies PreviewRequest,
       });
+
+      // 阶段 3：生成预览
+      setLoadingStage({ visible: true, stage: "generating", message: "正在渲染预览图像...", progress: 90 });
+
       setPreview(result);
+      setLoadingStage({ visible: false, stage: "generating" });
       setNotification({ kind: "success", message: "样张预览已更新，可以继续检查效果或直接批量导出。" });
     } catch (error) {
+      setLoadingStage({ visible: false, stage: "processing" });
       setNotification({ kind: "error", message: `预览生成失败：${String(error)}` });
     } finally {
       setPreviewLoading(false);
@@ -802,6 +916,14 @@ export default function App() {
     setBatchRunning(true);
 
     try {
+      // 显示批量处理进度
+      setLoadingStage({
+        visible: true,
+        stage: "batch-processing",
+        message: `正在处理 ${paths.length} 张图片...`,
+        progress: 0,
+      });
+
       const result = await invoke<BatchResult>("run_batch_cleanup", {
         request: {
           paths,
@@ -816,6 +938,7 @@ export default function App() {
         } satisfies BatchRequest,
       });
 
+      setLoadingStage({ visible: false, stage: "batch-processing" });
       setLastBatchResult(result);
       addHistory({
         id: crypto.randomUUID(),
@@ -831,6 +954,7 @@ export default function App() {
         message: `批处理完成：共 ${result.processedCount} 张，${result.successCount} 成功，${result.failedCount} 失败。`,
       });
     } catch (error) {
+      setLoadingStage({ visible: false, stage: "batch-processing" });
       setNotification({ kind: "error", message: `批处理失败：${String(error)}` });
     } finally {
       setBatchRunning(false);
@@ -882,6 +1006,15 @@ export default function App() {
           </div>
         </div>
       ) : null}
+
+      {/* 加载动画遮罩层 */}
+      <LoadingOverlay
+        visible={loadingStage.visible}
+        stage={loadingStage.stage}
+        progress={loadingStage.progress}
+        message={loadingStage.message}
+      />
+
       <div className="grid min-h-screen grid-cols-[280px_minmax(0,1fr)_360px] gap-4 p-4">
         <aside className="rounded-panel border border-white/70 bg-surface-rail/75 p-5 shadow-ambient backdrop-blur">
           <div className="mb-8">

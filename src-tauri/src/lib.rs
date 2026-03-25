@@ -120,6 +120,59 @@ fn runtime_status(app: tauri::AppHandle) -> Result<model_runtime::RuntimeStatus,
   model_runtime::resolve_runtime_status(&app).map_err(|err| err.to_string())
 }
 
+/// 模型预加载状态
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ModelLoadState {
+  is_loaded: bool,
+  is_loading: bool,
+  engine: String,
+}
+
+#[tauri::command]
+fn preload_model(app: tauri::AppHandle) -> Result<ModelLoadState, String> {
+  log::info!("收到模型预加载请求");
+
+  let server_manager = app.state::<onnx_server::OnnxServerManager>();
+  let status = server_manager.status();
+
+  // 如果已经加载，直接返回
+  if status == onnx_server::ModelLoadStatus::Loaded {
+    return Ok(ModelLoadState {
+      is_loaded: true,
+      is_loading: false,
+      engine: "EmbeddedOnnx".to_string(),
+    });
+  }
+
+  // 如果正在加载，返回加载中状态
+  if status == onnx_server::ModelLoadStatus::Loading {
+    return Ok(ModelLoadState {
+      is_loaded: false,
+      is_loading: true,
+      engine: "EmbeddedOnnx".to_string(),
+    });
+  }
+
+  // 检查是否有可用的 ONNX 模型
+  let bundled_model = model_runtime::resolve_bundled_model(&app)
+    .map_err(|e| e.to_string())?
+    .ok_or_else(|| "未找到内置模型文件".to_string())?;
+
+  // 开始预加载
+  match server_manager.preload(&bundled_model.model_path) {
+    Ok(_) => Ok(ModelLoadState {
+      is_loaded: true,
+      is_loading: false,
+      engine: "EmbeddedOnnx".to_string(),
+    }),
+    Err(e) => {
+      log::error!("模型预加载失败: {}", e);
+      Err(e.to_string())
+    }
+  }
+}
+
 #[tauri::command]
 fn bootstrap_state(app: tauri::AppHandle) -> BootstrapState {
   let package_info = app.package_info();
@@ -1814,6 +1867,7 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
       bootstrap_state,
       runtime_status,
+      preload_model,
       import_paths,
       preview_cleanup,
       run_batch_cleanup

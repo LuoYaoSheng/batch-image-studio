@@ -128,24 +128,90 @@ impl Drop for OnnxServer {
   }
 }
 
+/// 模型加载状态
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ModelLoadStatus {
+  NotLoaded,
+  Loading,
+  Loaded,
+  Failed,
+}
+
 /// 全局服务器实例（使用 Mutex 保证线程安全）
-pub struct OnnxServerManager(Mutex<Option<OnnxServer>>);
+pub struct OnnxServerManager {
+  server: Mutex<Option<OnnxServer>>,
+  status: Mutex<ModelLoadStatus>,
+}
 
 impl OnnxServerManager {
   pub fn new() -> Self {
-    Self(Mutex::new(None))
+    Self {
+      server: Mutex::new(None),
+      status: Mutex::new(ModelLoadStatus::NotLoaded),
+    }
+  }
+
+  /// 获取当前模型加载状态
+  pub fn status(&self) -> ModelLoadStatus {
+    *self.status.lock().unwrap()
+  }
+
+  /// 设置模型加载状态
+  fn set_status(&self, status: ModelLoadStatus) {
+    *self.status.lock().unwrap() = status;
+  }
+
+  /// 预加载模型（不阻塞获取服务器实例）
+  pub fn preload(&self, model_path: &str) -> Result<bool> {
+    let mut status_guard = self.status.lock().unwrap();
+    if *status_guard == ModelLoadStatus::Loaded {
+      return Ok(true); // 已加载
+    }
+
+    // 标记为加载中
+    *status_guard = ModelLoadStatus::Loading;
+    drop(status_guard);
+
+    match OnnxServer::new(model_path.to_string()) {
+      Ok(server) => {
+        *self.server.lock().unwrap() = Some(server);
+        self.set_status(ModelLoadStatus::Loaded);
+        log::info!("模型预加载完成");
+        Ok(true)
+      }
+      Err(e) => {
+        self.set_status(ModelLoadStatus::Failed);
+        log::error!("模型预加载失败: {}", e);
+        Err(e)
+      }
+    }
   }
 
   /// 获取或创建服务器实例
   pub fn get_or_create(&self, model_path: &str) -> Result<std::sync::MutexGuard<'_, Option<OnnxServer>>> {
-    let mut server = self.0.lock().map_err(|_| anyhow!("获取锁失败"))?;
+    let mut server = self.server.lock().map_err(|_| anyhow!("获取锁失败"))?;
 
     if server.is_none() {
       log::info!("首次启动 ONNX 服务器...");
-      *server = Some(OnnxServer::new(model_path.to_string())?);
+      self.set_status(ModelLoadStatus::Loading);
+      match OnnxServer::new(model_path.to_string()) {
+        Ok(s) => {
+          *server = Some(s);
+          self.set_status(ModelLoadStatus::Loaded);
+        }
+        Err(e) => {
+          self.set_status(ModelLoadStatus::Failed);
+          return Err(e);
+        }
+      }
     }
 
     Ok(server)
+  }
+
+  /// 检查服务器是否已就绪
+  pub fn is_ready(&self) -> bool {
+    self.status() == ModelLoadStatus::Loaded
   }
 }
 

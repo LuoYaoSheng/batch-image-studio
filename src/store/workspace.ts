@@ -68,6 +68,10 @@ type WorkspaceState = {
   isBatchRunning: boolean;
   notification: { kind: "info" | "success" | "error"; message: string } | null;
   lastBatchResult: BatchResult | null;
+  // 新增：模型加载状态
+  isModelLoading: boolean;
+  isModelLoaded: boolean;
+  modelLoadProgress: number;
   setCleanupMethod: (method: CleanupMethod) => void;
   setSizeHandlingMode: (mode: SizeHandlingMode) => void;
   setBlurSigma: (sigma: number) => void;
@@ -88,6 +92,10 @@ type WorkspaceState = {
   saveTemplate: (name: string) => void;
   applyTemplate: (id: string) => void;
   addHistory: (entry: HistoryEntry) => void;
+  // 新增：模型加载状态设置
+  setModelLoading: (value: boolean) => void;
+  setModelLoaded: (value: boolean) => void;
+  setModelLoadProgress: (value: number) => void;
 };
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
@@ -108,6 +116,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   isBatchRunning: false,
   notification: null,
   lastBatchResult: null,
+  // 新增：模型加载状态初始值
+  isModelLoading: false,
+  isModelLoaded: false,
+  modelLoadProgress: 0,
   setCleanupMethod: (cleanupMethod) => set({ cleanupMethod }),
   setSizeHandlingMode: (sizeHandlingMode) => set({ sizeHandlingMode }),
   setBlurSigma: (blurSigma) => set({ blurSigma }),
@@ -217,4 +229,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     saveArray(HISTORY_KEY, nextHistory);
     set({ history: nextHistory });
   },
+  // 新增：模型加载状态设置
+  setModelLoading: (isModelLoading) => set({ isModelLoading }),
+  setModelLoaded: (isModelLoaded) => set({ isModelLoaded }),
+  setModelLoadProgress: (modelLoadProgress) => set({ modelLoadProgress }),
 }));
