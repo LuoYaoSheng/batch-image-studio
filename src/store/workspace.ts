@@ -91,6 +91,45 @@ function hydrateTemplate(template: Template): Template {
   };
 }
 
+function createStarterTemplates(): Template[] {
+  const now = new Date().toISOString();
+  return [
+    {
+      id: "starter-right-bottom",
+      name: "右下角小字清理",
+      region: { x: 0.68, y: 0.76, width: 0.22, height: 0.12 },
+      cleanupMethod: "blur",
+      sizeHandlingMode: "bottomRight",
+      blurSigma: 10,
+      fillColor: "#f7f9fc",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "starter-bottom-strip",
+      name: "底边横条清理",
+      region: { x: 0.18, y: 0.86, width: 0.64, height: 0.08 },
+      cleanupMethod: "fill",
+      sizeHandlingMode: "relative",
+      blurSigma: 8,
+      fillColor: "#ffffff",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "starter-corner-crop",
+      name: "边角裁切模板",
+      region: { x: 0.82, y: 0.84, width: 0.14, height: 0.1 },
+      cleanupMethod: "crop",
+      sizeHandlingMode: "bottomRight",
+      blurSigma: 8,
+      fillColor: "#f7f9fc",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+}
+
 type WorkspaceState = {
   navigation: {
     currentScreen: AppScreen;
@@ -161,7 +200,11 @@ type WorkspaceState = {
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
   const appSettings = loadObject(APP_SETTINGS_KEY, DEFAULT_SETTINGS);
-  const templates = loadArray<Template>(TEMPLATES_KEY).map(hydrateTemplate);
+  const storedTemplates = loadArray<Template>(TEMPLATES_KEY).map(hydrateTemplate);
+  const templates = storedTemplates.length > 0 ? storedTemplates : createStarterTemplates();
+  if (storedTemplates.length === 0) {
+    saveArray(TEMPLATES_KEY, templates);
+  }
 
   return {
     navigation: {
