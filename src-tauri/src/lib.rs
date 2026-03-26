@@ -15,6 +15,10 @@ use std::{
   fs,
   path::{Path, PathBuf},
   process::Command,
+  sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+  },
   thread,
   time::{SystemTime, UNIX_EPOCH},
 };
@@ -175,6 +179,45 @@ struct BatchProgressPayload {
   stage: String,
 }
 
+#[derive(Default)]
+struct BatchTaskRegistry {
+  inner: Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>,
+}
+
+impl BatchTaskRegistry {
+  fn register(&self, task_id: &str) -> Arc<AtomicBool> {
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    self
+      .inner
+      .lock()
+      .expect("batch task registry poisoned")
+      .insert(task_id.to_string(), Arc::clone(&cancel_flag));
+    cancel_flag
+  }
+
+  fn cancel(&self, task_id: &str) -> bool {
+    if let Some(flag) = self
+      .inner
+      .lock()
+      .expect("batch task registry poisoned")
+      .get(task_id)
+    {
+      flag.store(true, Ordering::SeqCst);
+      return true;
+    }
+
+    false
+  }
+
+  fn finish(&self, task_id: &str) {
+    self
+      .inner
+      .lock()
+      .expect("batch task registry poisoned")
+      .remove(task_id);
+  }
+}
+
 #[tauri::command]
 fn runtime_status(app: tauri::AppHandle) -> Result<model_runtime::RuntimeStatus, String> {
   model_runtime::resolve_runtime_status(&app).map_err(|err| err.to_string())
@@ -285,6 +328,16 @@ fn open_path_in_file_manager(path: String) -> Result<(), String> {
 
   #[allow(unreachable_code)]
   Err("当前平台暂不支持打开系统文件管理器".to_string())
+}
+
+#[tauri::command]
+fn cancel_batch_task(app: tauri::AppHandle, task_id: String) -> Result<(), String> {
+  let registry = app.state::<BatchTaskRegistry>();
+  if registry.cancel(&task_id) {
+    return Ok(());
+  }
+
+  Err(format!("未找到批量任务: {}", task_id))
 }
 
 fn supported_image(path: &Path) -> bool {
@@ -2023,7 +2076,11 @@ fn preview_mask(request: PreviewRequest) -> Result<MaskPreviewResult, String> {
 }
 
 #[tauri::command]
-fn run_batch_cleanup(app: tauri::AppHandle, request: BatchRequest) -> Result<BatchResult, String> {
+fn run_batch_cleanup(
+  app: tauri::AppHandle,
+  request: BatchRequest,
+  cancel_flag: Arc<AtomicBool>,
+) -> Result<(BatchResult, bool), String> {
   if request.paths.is_empty() {
     return Err("没有可处理的图片".to_string());
   }
@@ -2061,6 +2118,30 @@ fn run_batch_cleanup(app: tauri::AppHandle, request: BatchRequest) -> Result<Bat
   );
 
   for (index, source_path) in request.paths.into_iter().enumerate() {
+    if cancel_flag.load(Ordering::SeqCst) {
+      let _ = app.emit(
+        "batch-progress",
+        BatchProgressPayload {
+          total,
+          completed: index,
+          success_count,
+          failed_count,
+          current_file: source_path.clone(),
+          stage: "cancelled".to_string(),
+        },
+      );
+      return Ok((
+        BatchResult {
+          output_dir: output_dir.to_string_lossy().to_string(),
+          processed_count: entries.len(),
+          success_count,
+          failed_count,
+          entries,
+        },
+        true,
+      ));
+    }
+
     let path = PathBuf::from(&source_path);
     let output_path = build_unique_output_path(&output_dir, &path);
     let item_started = std::time::Instant::now();
@@ -2167,13 +2248,17 @@ fn run_batch_cleanup(app: tauri::AppHandle, request: BatchRequest) -> Result<Bat
     );
   }
 
-  Ok(BatchResult {
-    output_dir: output_dir.to_string_lossy().to_string(),
-    processed_count: entries.len(),
-    success_count,
-    failed_count,
-    entries,
-  }).inspect(|result| {
+  Ok((
+    BatchResult {
+      output_dir: output_dir.to_string_lossy().to_string(),
+      processed_count: entries.len(),
+      success_count,
+      failed_count,
+      entries,
+    },
+    false,
+  ))
+  .inspect(|(result, _)| {
     log::info!(
       "批处理完成: {} 张, 成功 {}, 失败 {}, 输出目录 {}, 总耗时 {} ms",
       result.processed_count,
@@ -2193,8 +2278,11 @@ fn start_batch_task(app: tauri::AppHandle, request: BatchRequest) -> Result<Batc
     .as_micros());
   let app_handle = app.clone();
   let task_id_for_thread = task_id.clone();
+  let registry = app.state::<BatchTaskRegistry>();
+  let cancel_flag = registry.register(&task_id);
 
   thread::spawn(move || {
+    let task_id_for_finish = task_id_for_thread.clone();
     let emit_event = |stage: &str, message: &str, result: Option<BatchResult>, error: Option<String>| {
       let _ = app_handle.emit(
         "batch-task",
@@ -2210,10 +2298,14 @@ fn start_batch_task(app: tauri::AppHandle, request: BatchRequest) -> Result<Batc
 
     emit_event("started", "批处理任务已开始", None, None);
 
-    match run_batch_cleanup(app_handle.clone(), request) {
-      Ok(result) => emit_event("completed", "批处理已完成", Some(result), None),
+    match run_batch_cleanup(app_handle.clone(), request, Arc::clone(&cancel_flag)) {
+      Ok((result, true)) => emit_event("cancelled", "批处理已取消", Some(result), None),
+      Ok((result, false)) => emit_event("completed", "批处理已完成", Some(result), None),
       Err(error) => emit_event("error", "批处理失败", None, Some(error)),
     }
+
+    let registry = app_handle.state::<BatchTaskRegistry>();
+    registry.finish(&task_id_for_finish);
   });
 
   Ok(BatchTaskStarted { task_id: task_id })
@@ -2225,6 +2317,7 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
       bootstrap_state,
       open_path_in_file_manager,
+      cancel_batch_task,
       runtime_status,
       preload_model,
       import_paths,
@@ -2236,6 +2329,7 @@ pub fn run() {
     ])
     .plugin(tauri_plugin_dialog::init())
     .manage(onnx_server::OnnxServerManager::new())
+    .manage(BatchTaskRegistry::default())
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(

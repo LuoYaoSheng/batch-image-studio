@@ -454,6 +454,29 @@ export default function App() {
           setBatchRunning(false);
           activeBatchTaskIdRef.current = null;
           break;
+        case "cancelled":
+          if (payload.result) {
+            const batchResult = payload.result;
+            setLastBatchResult(batchResult);
+            addHistory({
+              id: crypto.randomUUID(),
+              createdAt: new Date().toISOString(),
+              importedCount: importedImages.length,
+              successCount: batchResult.successCount,
+              failedCount: batchResult.failedCount,
+              outputDir: batchResult.outputDir,
+              cleanupMethod,
+              templateId: currentTemplateId ?? undefined,
+              templateName: currentTemplateName || undefined,
+            });
+            setNotification({
+              kind: "info",
+              message: `批处理已取消：已处理 ${batchResult.processedCount} 张，成功 ${batchResult.successCount}，失败 ${batchResult.failedCount}。`,
+            });
+          }
+          setBatchRunning(false);
+          activeBatchTaskIdRef.current = null;
+          break;
         case "error":
           setBatchRunning(false);
           setBatchStartedAt(null);
@@ -1016,6 +1039,27 @@ export default function App() {
     await runBatchForPaths(importedImages.map((item) => item.path));
   }
 
+  async function cancelActiveBatchTask() {
+    if (!activeBatchTaskIdRef.current) {
+      return;
+    }
+
+    if (!isTauriRuntime()) {
+      setNotification({
+        kind: "info",
+        message: "浏览器预览环境不支持真实批量取消，请在 Tauri 桌面环境中验证。",
+      });
+      return;
+    }
+
+    try {
+      await invoke("cancel_batch_task", { taskId: activeBatchTaskIdRef.current });
+      setNotification({ kind: "info", message: "正在取消批量任务..." });
+    } catch (error) {
+      setNotification({ kind: "error", message: `取消批量任务失败：${String(error)}` });
+    }
+  }
+
   async function openOutputPath(path: string | null | undefined) {
     if (!path) {
       setNotification({ kind: "info", message: "当前没有可打开的输出目录。" });
@@ -1532,6 +1576,8 @@ export default function App() {
         onRetryFailedOnly={() => void retryFailedOnly()}
         onBackHome={() => setCurrentScreen("home")}
         onOpenOutputDir={() => void openOutputPath(lastBatchResult?.outputDir)}
+        onCancelBatch={() => void cancelActiveBatchTask()}
+        isBatchRunning={isBatchRunning}
       />
     );
   } else if (currentScreen === "templates") {

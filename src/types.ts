@@ -93,7 +93,7 @@ export type BatchProgressEvent = {
   successCount: number;
   failedCount: number;
   currentFile: string;
-  stage: "started" | "processing" | "completed";
+  stage: "started" | "processing" | "completed" | "cancelled";
 };
 
 export type BatchTaskStarted = {
@@ -102,7 +102,7 @@ export type BatchTaskStarted = {
 
 export type BatchTaskEvent = {
   taskId: string;
-  stage: "started" | "completed" | "error";
+  stage: "started" | "completed" | "cancelled" | "error";
   message: string;
   result?: BatchResult | null;
   error?: string | null;
