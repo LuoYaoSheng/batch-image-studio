@@ -42,6 +42,8 @@ export function TemplateBuilderScreen({
   onImportFolder,
   onClearWorkspace,
   onRemoveSelectedImage,
+  onRemoveImage,
+  onOpenTemplates,
 }: {
   importedImages: ImportedImage[];
   selectedImage: ImportedImage | null;
@@ -74,6 +76,8 @@ export function TemplateBuilderScreen({
   onImportFolder: () => void;
   onClearWorkspace: () => void;
   onRemoveSelectedImage: () => void;
+  onRemoveImage: (id: string) => void;
+  onOpenTemplates: () => void;
 }) {
   return (
     <div className="grid h-full min-h-[720px] grid-cols-[280px_minmax(0,1fr)_360px] gap-5">
@@ -141,6 +145,7 @@ export function TemplateBuilderScreen({
                 items={importedImages}
                 selectedImageId={selectedImageId}
                 onSelect={onSelectImage}
+                onRemove={onRemoveImage}
                 previewTaskStateByImageId={previewTaskStateByImageId}
               />
             </div>
@@ -205,6 +210,15 @@ export function TemplateBuilderScreen({
               value={currentTemplateName}
               onChange={(event) => onSetCurrentTemplateName(event.target.value)}
             />
+            <div className="mt-3">
+              <button
+                className="rounded-xl border border-line bg-surface px-3 py-2 text-xs font-medium"
+                type="button"
+                onClick={onOpenTemplates}
+              >
+                切换模板
+              </button>
+            </div>
           </label>
 
           <div>

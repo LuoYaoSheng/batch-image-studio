@@ -59,6 +59,7 @@ export function PreviewScreen({
             items={importedImages}
             selectedImageId={selectedImageId}
             onSelect={onSelectImage}
+            onRemove={() => {}}
             previewTaskStateByImageId={previewTaskStateByImageId}
           />
         </div>

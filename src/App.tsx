@@ -271,6 +271,7 @@ export default function App() {
     setNotification,
     applyImportSummary,
     selectImage,
+    removeImage,
     clearWorkspace,
     clearPreviewState,
     setPreview,
@@ -1176,6 +1177,33 @@ export default function App() {
     useWorkspaceStore.getState().removeImage(selectedImage.id);
   }
 
+  function handleRemoveImage(imageId: string) {
+    const image = importedImages.find((item) => item.id === imageId);
+    if (!image) {
+      return;
+    }
+
+    if (importedImages.length <= 1) {
+      setDecisionDialog({
+        title: "移除最后一张图片？",
+        description: "当前任务将没有图片。移除后会清空当前任务并返回首页。",
+        cancelAction: {
+          label: "取消",
+          tone: "neutral",
+          onClick: closeDecisionDialog,
+        },
+        primaryAction: {
+          label: "移除并返回首页",
+          tone: "danger",
+          onClick: clearTaskAndGoHome,
+        },
+      });
+      return;
+    }
+
+    removeImage(imageId);
+  }
+
   const notificationNode = notification || warnings.length > 0 ? (
     <div className="space-y-3">
       {notification ? (
@@ -1447,6 +1475,8 @@ export default function App() {
           })
         }
         onRemoveSelectedImage={handleRemoveSelectedImage}
+        onRemoveImage={handleRemoveImage}
+        onOpenTemplates={() => setCurrentScreen("templates")}
       />
     );
   } else if (currentScreen === "preview") {
