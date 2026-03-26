@@ -12,6 +12,7 @@ import { PreviewScreen } from "./screens/PreviewScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { TemplateBuilderScreen } from "./screens/TemplateBuilderScreen";
 import { TemplatesScreen } from "./screens/TemplatesScreen";
+import { TemplatePickerDialog } from "./components/templates/TemplatePickerDialog";
 import { useWorkspaceStore } from "./store/workspace";
 import type {
   BatchProgressEvent,
@@ -85,6 +86,10 @@ type DecisionDialogState = {
   cancelAction: DecisionDialogAction;
   primaryAction: DecisionDialogAction;
   secondaryAction?: DecisionDialogAction;
+} | null;
+
+type TemplatePickerState = {
+  source: "home" | "builder";
 } | null;
 
 const supportedFilters = [
@@ -211,6 +216,7 @@ export default function App() {
   >({});
   const [autoPreviewOnEnter, setAutoPreviewOnEnter] = useState(false);
   const [decisionDialog, setDecisionDialog] = useState<DecisionDialogState>(null);
+  const [templatePicker, setTemplatePicker] = useState<TemplatePickerState>(null);
   const previewTaskContextByTaskIdRef = useRef<
     Record<string, { imageId: string; sourcePath: string; signature: string }>
   >({});
@@ -1047,6 +1053,7 @@ export default function App() {
   }
 
   async function handleUseTemplate(templateId: string) {
+    setTemplatePicker(null);
     if (hasTaskContent) {
       setDecisionDialog({
         title: "应用新模板到当前任务？",
@@ -1111,6 +1118,10 @@ export default function App() {
 
   function closeDecisionDialog() {
     setDecisionDialog(null);
+  }
+
+  function closeTemplatePicker() {
+    setTemplatePicker(null);
   }
 
   function clearTaskAndGoHome() {
@@ -1425,7 +1436,7 @@ export default function App() {
       isImporting={isImporting}
       onImportFiles={() => void startImportFlow("files", "builder", "replace")}
       onImportFolder={() => void startImportFlow("folder", "builder", "replace")}
-      onOpenTemplates={() => setCurrentScreen("templates")}
+      onOpenTemplates={() => setTemplatePicker({ source: "home" })}
       onUseTemplate={(id) => void handleUseTemplate(id)}
       onOpenHistory={() => setCurrentScreen("history")}
     />
@@ -1491,7 +1502,7 @@ export default function App() {
         }
         onRemoveSelectedImage={handleRemoveSelectedImage}
         onRemoveImage={handleRemoveImage}
-        onOpenTemplates={() => setCurrentScreen("templates")}
+        onOpenTemplates={() => setTemplatePicker({ source: "builder" })}
       />
     );
   } else if (currentScreen === "preview") {
@@ -1606,6 +1617,23 @@ export default function App() {
           cancelAction={decisionDialog.cancelAction}
           secondaryAction={decisionDialog.secondaryAction}
           primaryAction={decisionDialog.primaryAction}
+        />
+      ) : null}
+      {templatePicker ? (
+        <TemplatePickerDialog
+          templates={templates}
+          title={templatePicker.source === "builder" ? "切换模板" : "应用已有模板"}
+          description={
+            templatePicker.source === "builder"
+              ? "直接选择一个模板应用到当前任务，也可以进入模板中心进行管理。"
+              : "先选择模板，再进入模板构建页查看参数并导入图片。"
+          }
+          onSelect={(id) => void handleUseTemplate(id)}
+          onManageTemplates={() => {
+            setTemplatePicker(null);
+            setCurrentScreen("templates");
+          }}
+          onClose={closeTemplatePicker}
         />
       ) : null}
     </div>

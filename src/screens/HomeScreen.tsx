@@ -67,14 +67,14 @@ export function HomeScreen({
           <p className="text-sm uppercase tracking-[0.22em] text-primary-strong">Template First</p>
           <h3 className="mt-3 text-2xl font-semibold text-ink">应用已有模板</h3>
           <p className="mt-3 text-sm leading-7 text-muted">
-            已有可复用模板时，可以直接从模板中心选择并导入图片，先看一张预览，再开始批量处理。
+            已有可复用模板时，先选择模板进入模板构建页查看参数，再决定导入图片或直接继续当前任务。
           </p>
           <button
             className="mt-6 w-full rounded-2xl bg-surface px-4 py-3 text-sm font-medium text-primary-strong"
             type="button"
             onClick={onOpenTemplates}
           >
-            打开模板中心
+            选择模板
           </button>
           {recentTemplates.length > 0 ? (
             <div className="mt-5 space-y-3">
