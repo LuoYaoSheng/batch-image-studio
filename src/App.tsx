@@ -1138,6 +1138,21 @@ export default function App() {
     setNotification({ kind: "success", message: "模板已应用，现在可以导入图片或调整参数。" });
   }
 
+  function applyTemplateToCurrentTask(templateId: string) {
+    setTemplatePicker(null);
+    applyTemplate(templateId);
+    setCurrentScreen("builder");
+    setNotification({ kind: "success", message: "已应用新模板，请重新预览效果。" });
+  }
+
+  function clearTaskThenApplyTemplate(templateId: string) {
+    setTemplatePicker(null);
+    clearWorkspace();
+    applyTemplate(templateId);
+    setCurrentScreen("builder");
+    setNotification({ kind: "success", message: "模板已应用，现在可以导入图片或调整参数。" });
+  }
+
   function handleEditTemplate(templateId: string) {
     applyTemplate(templateId);
     setCurrentScreen("builder");
@@ -1674,7 +1689,10 @@ export default function App() {
               ? "直接选择一个模板应用到当前任务，也可以进入模板中心进行管理。"
               : "先选择模板，再进入模板构建页查看参数并导入图片。"
           }
+          mode={templatePicker.source === "builder" && hasTaskContent ? "task-switch" : "simple"}
           onSelect={(id) => void handleUseTemplate(id)}
+          onApplyToCurrent={(id) => applyTemplateToCurrentTask(id)}
+          onClearThenApply={(id) => clearTaskThenApplyTemplate(id)}
           onManageTemplates={() => {
             setTemplatePicker(null);
             setCurrentScreen("templates");

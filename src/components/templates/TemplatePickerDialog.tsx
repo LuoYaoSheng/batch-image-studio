@@ -6,14 +6,20 @@ export function TemplatePickerDialog({
   templates,
   title = "选择模板",
   description = "先选择一个模板，再进入模板构建或继续当前任务。",
+  mode = "simple",
   onSelect,
+  onApplyToCurrent,
+  onClearThenApply,
   onManageTemplates,
   onClose,
 }: {
   templates: Template[];
   title?: string;
   description?: string;
+  mode?: "simple" | "task-switch";
   onSelect: (id: string) => void;
+  onApplyToCurrent?: (id: string) => void;
+  onClearThenApply?: (id: string) => void;
   onManageTemplates: () => void;
   onClose: () => void;
 }) {
@@ -58,11 +64,9 @@ export function TemplatePickerDialog({
             </div>
           ) : (
             filtered.map((template) => (
-              <button
+              <div
                 key={template.id}
-                className="w-full rounded-[24px] border border-line bg-surface px-5 py-4 text-left transition hover:border-primary-strong hover:bg-white"
-                type="button"
-                onClick={() => onSelect(template.id)}
+                className="rounded-[24px] border border-line bg-surface px-5 py-4 text-left transition hover:border-primary-strong hover:bg-white"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div>
@@ -74,9 +78,36 @@ export function TemplatePickerDialog({
                       最近更新 {formatRelativeTime(getTemplateTimestamp(template))}
                     </p>
                   </div>
-                  <div className="rounded-xl bg-primary px-3 py-2 text-sm font-medium text-white">应用</div>
                 </div>
-              </button>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  {mode === "task-switch" ? (
+                    <>
+                      <button
+                        className="rounded-xl border border-line bg-white px-4 py-2 text-sm font-medium"
+                        type="button"
+                        onClick={() => onApplyToCurrent?.(template.id)}
+                      >
+                        应用到当前任务
+                      </button>
+                      <button
+                        className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white"
+                        type="button"
+                        onClick={() => onClearThenApply?.(template.id)}
+                      >
+                        清空后应用
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white"
+                      type="button"
+                      onClick={() => onSelect(template.id)}
+                    >
+                      应用模板
+                    </button>
+                  )}
+                </div>
+              </div>
             ))
           )}
         </div>
