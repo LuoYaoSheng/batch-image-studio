@@ -484,3 +484,80 @@ test("template switching during active task shows decision dialog", async ({ pag
   await expect(page.getByText("已应用新模板，请重新预览效果。")).toBeVisible();
   await expect(page.getByText("模板构建", { exact: true }).first()).toBeVisible();
 });
+
+test("builder quick import buttons are guarded in browser preview", async ({ page }) => {
+  await page.goto("http://127.0.0.1:4174/", { waitUntil: "networkidle" });
+  await seedStore(page, {
+    navigation: { currentScreen: "builder", builderMode: "new", pendingImportDestination: "builder" },
+  });
+
+  await page.getByRole("button", { name: "导入图片" }).click();
+  await expect(page.getByText("浏览器预览环境不支持系统文件对话框，请在 Tauri 桌面环境中验证导入流程。")).toBeVisible();
+});
+
+test("preview discard action clears preview and returns to builder", async ({ page }) => {
+  const dataUrl =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==";
+
+  await page.goto("http://127.0.0.1:4174/", { waitUntil: "networkidle" });
+  await seedStore(page, {
+    navigation: { currentScreen: "preview", builderMode: "edit", pendingImportDestination: "builder" },
+    importedImages: [
+      {
+        id: "img-1",
+        path: "/tmp/a.png",
+        name: "IMG_0001.png",
+        width: 1600,
+        height: 900,
+        format: "png",
+        fileSize: 102400,
+        thumbnailDataUrl: dataUrl,
+      },
+    ],
+    selectedImageId: "img-1",
+    currentTemplateName: "右下角小字清理",
+    preview: {
+      processedImagePath: "",
+      processedDisplayDataUrl: dataUrl,
+      outputWidth: 1600,
+      outputHeight: 900,
+      cachedProcessedPath: "/tmp/cache.png",
+    },
+  });
+
+  await page.getByRole("button", { name: "放弃当前预览" }).click();
+  await expect(page.getByText("放弃当前预览？")).toBeVisible();
+  await page.getByRole("button", { name: "放弃预览" }).click();
+  await expect(page.getByText("已放弃当前预览，模板配置和图片仍然保留。")).toBeVisible();
+  await expect(page.getByText("模板构建", { exact: true }).first()).toBeVisible();
+});
+
+test("removing last image confirms and returns home", async ({ page }) => {
+  const dataUrl =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==";
+
+  await page.goto("http://127.0.0.1:4174/", { waitUntil: "networkidle" });
+  await seedStore(page, {
+    navigation: { currentScreen: "builder", builderMode: "edit", pendingImportDestination: "builder" },
+    importedImages: [
+      {
+        id: "img-1",
+        path: "/tmp/a.png",
+        name: "IMG_0001.png",
+        width: 1600,
+        height: 900,
+        format: "png",
+        fileSize: 102400,
+        thumbnailDataUrl: dataUrl,
+      },
+    ],
+    selectedImageId: "img-1",
+    currentTemplateName: "测试模板",
+    isTemplateDirty: true,
+  });
+
+  await page.getByRole("button", { name: "移除当前图片" }).click();
+  await expect(page.getByText("移除最后一张图片？")).toBeVisible();
+  await page.getByRole("button", { name: "移除并返回首页" }).click();
+  await expect(page.getByText("最近模板", { exact: true }).first()).toBeVisible();
+});

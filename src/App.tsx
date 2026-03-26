@@ -269,6 +269,7 @@ export default function App() {
     applyImportSummary,
     selectImage,
     clearWorkspace,
+    clearPreviewState,
     setPreview,
     setLastBatchResult,
     saveTemplate,
@@ -1103,6 +1104,13 @@ export default function App() {
     setDecisionDialog(null);
   }
 
+  function clearPreviewAndReturnToBuilder() {
+    clearPreviewState();
+    setCurrentScreen("builder");
+    setDecisionDialog(null);
+    setNotification({ kind: "info", message: "已放弃当前预览，模板配置和图片仍然保留。" });
+  }
+
   function navigateWithGuard(nextScreen: typeof currentScreen) {
     if (currentScreen === "builder" && nextScreen === "home" && hasUnsavedTask) {
       setDecisionDialog({
@@ -1133,6 +1141,32 @@ export default function App() {
   function handlePreviewSelectImage(id: string) {
     selectImage(id);
     setAutoPreviewOnEnter(true);
+  }
+
+  function handleRemoveSelectedImage() {
+    if (!selectedImage) {
+      return;
+    }
+
+    if (importedImages.length <= 1) {
+      setDecisionDialog({
+        title: "移除最后一张图片？",
+        description: "当前任务将没有图片。移除后会清空当前任务并返回首页。",
+        cancelAction: {
+          label: "取消",
+          tone: "neutral",
+          onClick: closeDecisionDialog,
+        },
+        primaryAction: {
+          label: "移除并返回首页",
+          tone: "danger",
+          onClick: clearTaskAndGoHome,
+        },
+      });
+      return;
+    }
+
+    useWorkspaceStore.getState().removeImage(selectedImage.id);
   }
 
   const notificationNode = notification || warnings.length > 0 ? (
@@ -1193,10 +1227,49 @@ export default function App() {
         <button
           className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-medium"
           type="button"
-          disabled={importedImages.length === 0}
+          disabled={isImporting}
+          onClick={() => void startImportFlow("files", "builder")}
+        >
+          导入图片
+        </button>
+        <button
+          className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-medium"
+          type="button"
+          disabled={isImporting}
+          onClick={() => void startImportFlow("folder", "builder")}
+        >
+          导入文件夹
+        </button>
+        <button
+          className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-medium"
+          type="button"
+          disabled={!currentTemplateName.trim()}
           onClick={saveCurrentTemplate}
         >
           保存模板
+        </button>
+        <button
+          className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-medium disabled:opacity-60"
+          type="button"
+          disabled={importedImages.length === 0}
+          onClick={() =>
+            setDecisionDialog({
+              title: "清空当前任务？",
+              description: "清空后将移除当前导入的图片、预览结果和未保存的编辑内容，并返回首页。",
+              cancelAction: {
+                label: "取消",
+                tone: "neutral",
+                onClick: closeDecisionDialog,
+              },
+              primaryAction: {
+                label: "清空并返回首页",
+                tone: "danger",
+                onClick: clearTaskAndGoHome,
+              },
+            })
+          }
+        >
+          清空任务
         </button>
         <button
           className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-medium disabled:opacity-60"
@@ -1239,6 +1312,28 @@ export default function App() {
           onClick={saveCurrentTemplate}
         >
           保存模板
+        </button>
+        <button
+          className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-medium"
+          type="button"
+          onClick={() =>
+            setDecisionDialog({
+              title: "放弃当前预览？",
+              description: "这会清除当前预览结果，但不会删除导入图片、区域设置或模板内容。",
+              cancelAction: {
+                label: "继续查看",
+                tone: "neutral",
+                onClick: closeDecisionDialog,
+              },
+              primaryAction: {
+                label: "放弃预览",
+                tone: "danger",
+                onClick: clearPreviewAndReturnToBuilder,
+              },
+            })
+          }
+        >
+          放弃当前预览
         </button>
         <button
           className="rounded-2xl bg-primary px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
@@ -1335,6 +1430,7 @@ export default function App() {
             },
           })
         }
+        onRemoveSelectedImage={handleRemoveSelectedImage}
       />
     );
   } else if (currentScreen === "preview") {

@@ -38,6 +38,7 @@ export function TemplateBuilderScreen({
   onImportFiles,
   onImportFolder,
   onClearWorkspace,
+  onRemoveSelectedImage,
 }: {
   importedImages: ImportedImage[];
   selectedImage: ImportedImage | null;
@@ -66,6 +67,7 @@ export function TemplateBuilderScreen({
   onImportFiles: () => void;
   onImportFolder: () => void;
   onClearWorkspace: () => void;
+  onRemoveSelectedImage: () => void;
 }) {
   return (
     <div className="grid h-full min-h-[720px] grid-cols-[280px_minmax(0,1fr)_360px] gap-5">
@@ -149,15 +151,26 @@ export function TemplateBuilderScreen({
                 在画布上拖动蓝色区域即可调整模板处理范围。
               </p>
             </div>
-            {isTemplateDirty ? (
-              <span className="rounded-full bg-[#fff6df] px-3 py-1 text-xs font-medium text-warning">
-                有未保存更改
-              </span>
-            ) : (
-              <span className="rounded-full bg-[#edf7f1] px-3 py-1 text-xs font-medium text-success">
-                模板已同步
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {selectedImage ? (
+                <button
+                  className="rounded-xl border border-line bg-surface px-3 py-2 text-xs font-medium text-muted hover:bg-white hover:text-ink"
+                  type="button"
+                  onClick={onRemoveSelectedImage}
+                >
+                  移除当前图片
+                </button>
+              ) : null}
+              {isTemplateDirty ? (
+                <span className="rounded-full bg-[#fff6df] px-3 py-1 text-xs font-medium text-warning">
+                  有未保存更改
+                </span>
+              ) : (
+                <span className="rounded-full bg-[#edf7f1] px-3 py-1 text-xs font-medium text-success">
+                  模板已同步
+                </span>
+              )}
+            </div>
           </div>
         </div>
 

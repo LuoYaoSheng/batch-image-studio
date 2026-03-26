@@ -141,6 +141,7 @@ type WorkspaceState = {
   applyImportSummary: (summary: ImportSummary) => void;
   selectImage: (id: string) => void;
   removeImage: (id: string) => void;
+  clearPreviewState: () => void;
   clearWorkspace: () => void;
   setPreview: (preview: PreviewResult | null) => void;
   setLastBatchResult: (result: BatchResult | null) => void;
@@ -316,8 +317,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           notification:
             remaining.length > 0
               ? { kind: "info", message: `已移除 1 张图片，当前剩余 ${remaining.length} 张。` }
-              : { kind: "info", message: "当前任务已清空，可重新导入图片或文件夹。" },
+            : { kind: "info", message: "当前任务已清空，可重新导入图片或文件夹。" },
         };
+      }),
+    clearPreviewState: () =>
+      set({
+        preview: null,
+        lastBatchResult: null,
       }),
     clearWorkspace: () =>
       set((state) => ({
