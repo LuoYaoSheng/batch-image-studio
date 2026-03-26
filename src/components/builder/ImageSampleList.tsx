@@ -17,7 +17,7 @@ export function ImageSampleList({
   items: ImportedImage[];
   selectedImageId: string | null;
   onSelect: (id: string) => void;
-  onRemove: (id: string) => void;
+  onRemove?: (id: string) => void;
   previewTaskStateByImageId: Record<string, PreviewTaskState | undefined>;
 }) {
   return (
@@ -57,13 +57,15 @@ export function ImageSampleList({
                 <p className="mt-1 text-xs text-muted">{formatBytes(item.fileSize)}</p>
               </div>
             </button>
-            <button
-              className="shrink-0 rounded-xl border border-line bg-white px-3 py-2 text-xs font-medium text-muted hover:text-[#9a2020]"
-              type="button"
-              onClick={() => onRemove(item.id)}
-            >
-              移除
-            </button>
+            {onRemove ? (
+              <button
+                className="shrink-0 rounded-xl border border-line bg-white px-3 py-2 text-xs font-medium text-muted hover:text-[#9a2020]"
+                type="button"
+                onClick={() => onRemove(item.id)}
+              >
+                移除
+              </button>
+            ) : null}
           </div>
         </div>
       ))}

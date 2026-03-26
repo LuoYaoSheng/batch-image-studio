@@ -593,6 +593,88 @@ test("builder disables preview and save when region selection is cleared", async
   await expect(page.getByRole("button", { name: "预览效果" })).toBeDisabled();
 });
 
+test("builder import actions switch to append labels when task already has images", async ({ page }) => {
+  const dataUrl =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==";
+
+  await page.goto("http://127.0.0.1:4174/", { waitUntil: "networkidle" });
+  await seedStore(page, {
+    navigation: { currentScreen: "builder", builderMode: "edit", pendingImportDestination: "builder" },
+    importedImages: [
+      {
+        id: "img-1",
+        path: "/tmp/a.png",
+        name: "IMG_0001.png",
+        width: 1600,
+        height: 900,
+        format: "png",
+        fileSize: 102400,
+        thumbnailDataUrl: dataUrl,
+      },
+    ],
+    selectedImageId: "img-1",
+    currentTemplateName: "测试模板",
+    hasRegionSelection: true,
+  });
+
+  await expect(page.getByRole("button", { name: "追加图片" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "追加文件夹" })).toBeVisible();
+});
+
+test("append import summary keeps current task context", async ({ page }) => {
+  const dataUrl =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==";
+
+  await page.goto("http://127.0.0.1:4174/", { waitUntil: "networkidle" });
+  await seedStore(page, {
+    navigation: { currentScreen: "builder", builderMode: "edit", pendingImportDestination: "builder" },
+    importedImages: [
+      {
+        id: "img-1",
+        path: "/tmp/a.png",
+        name: "IMG_0001.png",
+        width: 1600,
+        height: 900,
+        format: "png",
+        fileSize: 102400,
+        thumbnailDataUrl: dataUrl,
+      },
+    ],
+    selectedImageId: "img-1",
+    currentTemplateName: "测试模板",
+    hasRegionSelection: true,
+    region: { x: 0.68, y: 0.76, width: 0.22, height: 0.12 },
+  });
+
+  await page.evaluate((data) => {
+    window.__batchImageStudioStore.getState().appendImportSummary({
+      items: [
+        {
+          id: "img-2",
+          path: "/tmp/b.png",
+          name: "IMG_0002.png",
+          width: 1600,
+          height: 900,
+          format: "png",
+          fileSize: 204800,
+          thumbnailDataUrl: data,
+        },
+      ],
+      warnings: [],
+    });
+  }, dataUrl);
+
+  await page.waitForFunction(() => {
+    const state = window.__batchImageStudioStore.getState();
+    return (
+      state.importedImages.length === 2 &&
+      state.selectedImageId === "img-1" &&
+      state.currentTemplateName === "测试模板" &&
+      state.hasRegionSelection === true
+    );
+  });
+});
+
 test("builder reset current region settings restores defaults", async ({ page }) => {
   const dataUrl =
     "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==";

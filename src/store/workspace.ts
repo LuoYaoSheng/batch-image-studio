@@ -142,6 +142,7 @@ type WorkspaceState = {
   setBatchRunning: (value: boolean) => void;
   setNotification: (value: { kind: "info" | "success" | "error"; message: string } | null) => void;
   applyImportSummary: (summary: ImportSummary) => void;
+  appendImportSummary: (summary: ImportSummary) => void;
   selectImage: (id: string) => void;
   removeImage: (id: string) => void;
   clearPreviewState: () => void;
@@ -335,6 +336,29 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             ? { kind: "success", message: `已导入 ${summary.items.length} 张图片，可开始模板构建。` }
             : { kind: "info", message: "没有导入到可处理图片，请重新选择文件或文件夹。" },
       })),
+    appendImportSummary: (summary) =>
+      set((state) => {
+        const currentByPath = new Map(state.importedImages.map((item) => [item.path, item]));
+        for (const item of summary.items) {
+          currentByPath.set(item.path, item);
+        }
+
+        const nextImages = Array.from(currentByPath.values());
+        const selectedStillExists = nextImages.some((item) => item.id === state.selectedImageId);
+
+        return {
+          importedImages: nextImages,
+          warnings: [...state.warnings, ...summary.warnings],
+          selectedImageId: selectedStillExists ? state.selectedImageId : (nextImages[0]?.id ?? null),
+          notification:
+            summary.items.length > 0
+              ? {
+                  kind: "success",
+                  message: `已追加 ${summary.items.length} 张图片，当前任务共 ${nextImages.length} 张。`,
+                }
+              : { kind: "info", message: "没有追加到新的可处理图片。" },
+        };
+      }),
     selectImage: (selectedImageId) =>
       set({
         selectedImageId,

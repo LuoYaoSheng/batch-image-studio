@@ -270,6 +270,7 @@ export default function App() {
     setBatchRunning,
     setNotification,
     applyImportSummary,
+    appendImportSummary,
     selectImage,
     removeImage,
     clearWorkspace,
@@ -684,7 +685,7 @@ export default function App() {
     selectedImage,
   ]);
 
-  async function importPaths(paths: string[]) {
+  async function importPaths(paths: string[], strategy: "replace" | "append" = "replace") {
     const signature = normalizePaths(paths);
     const now = Date.now();
     if (
@@ -697,14 +698,20 @@ export default function App() {
 
     lastImportSignatureRef.current = signature;
     lastImportAtRef.current = now;
-    setBatchProgress(null);
-    setBatchStartedAt(null);
-    setProcessedCacheMap({});
-    setPreviewCacheMap({});
-    setPreviewTaskStateByImageId({});
-    previewTaskContextByTaskIdRef.current = {};
+    if (strategy === "replace") {
+      setBatchProgress(null);
+      setBatchStartedAt(null);
+      setProcessedCacheMap({});
+      setPreviewCacheMap({});
+      setPreviewTaskStateByImageId({});
+      previewTaskContextByTaskIdRef.current = {};
+    }
     const summary = await invoke<ImportSummary>("import_paths", { paths });
-    applyImportSummary(summary);
+    if (strategy === "append") {
+      appendImportSummary(summary);
+    } else {
+      applyImportSummary(summary);
+    }
     if (summary.items.length === 0) {
       return;
     }
@@ -714,7 +721,7 @@ export default function App() {
     setAutoPreviewOnEnter(destination === "preview");
   }
 
-  async function importWithDialog(mode: "files" | "folder") {
+  async function importWithDialog(mode: "files" | "folder", strategy: "replace" | "append" = "replace") {
     if (!isTauriRuntime()) {
       setNotification({
         kind: "info",
@@ -749,7 +756,7 @@ export default function App() {
 
       const paths = Array.isArray(selected) ? selected : [selected];
       await waitForUiCommit();
-      await importPaths(paths);
+      await importPaths(paths, strategy);
     } catch (error) {
       setNotification({ kind: "error", message: `导入失败：${String(error)}` });
     } finally {
@@ -757,12 +764,16 @@ export default function App() {
     }
   }
 
-  async function startImportFlow(mode: "files" | "folder", destination: "builder" | "preview") {
+  async function startImportFlow(
+    mode: "files" | "folder",
+    destination: "builder" | "preview",
+    strategy: "replace" | "append" = "replace",
+  ) {
     setPendingImportDestination(destination);
-    if (destination === "builder") {
+    if (destination === "builder" && strategy === "replace") {
       startNewTemplateSession();
     }
-    await importWithDialog(mode);
+    await importWithDialog(mode, strategy);
   }
 
   async function chooseOutputDir() {
@@ -1244,7 +1255,7 @@ export default function App() {
           className="rounded-2xl bg-primary px-4 py-2 text-sm font-medium text-white"
           type="button"
           disabled={isImporting}
-          onClick={() => void startImportFlow("files", "builder")}
+          onClick={() => void startImportFlow("files", "builder", "replace")}
         >
           导入图片
         </button>
@@ -1252,7 +1263,7 @@ export default function App() {
           className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-medium"
           type="button"
           disabled={isImporting}
-          onClick={() => void startImportFlow("folder", "builder")}
+          onClick={() => void startImportFlow("folder", "builder", "replace")}
         >
           导入文件夹
         </button>
@@ -1263,17 +1274,17 @@ export default function App() {
           className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-medium"
           type="button"
           disabled={isImporting}
-          onClick={() => void startImportFlow("files", "builder")}
+          onClick={() => void startImportFlow("files", "builder", importedImages.length > 0 ? "append" : "replace")}
         >
-          导入图片
+          {importedImages.length > 0 ? "追加图片" : "导入图片"}
         </button>
         <button
           className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-medium"
           type="button"
           disabled={isImporting}
-          onClick={() => void startImportFlow("folder", "builder")}
+          onClick={() => void startImportFlow("folder", "builder", importedImages.length > 0 ? "append" : "replace")}
         >
-          导入文件夹
+          {importedImages.length > 0 ? "追加文件夹" : "导入文件夹"}
         </button>
         <button
           className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-medium"
@@ -1412,8 +1423,8 @@ export default function App() {
       templates={templates}
       history={history}
       isImporting={isImporting}
-      onImportFiles={() => void startImportFlow("files", "builder")}
-      onImportFolder={() => void startImportFlow("folder", "builder")}
+      onImportFiles={() => void startImportFlow("files", "builder", "replace")}
+      onImportFolder={() => void startImportFlow("folder", "builder", "replace")}
       onOpenTemplates={() => setCurrentScreen("templates")}
       onUseTemplate={(id) => void handleUseTemplate(id)}
       onOpenHistory={() => setCurrentScreen("history")}
@@ -1456,8 +1467,12 @@ export default function App() {
           resetCurrentRegionSettings();
           setNotification({ kind: "success", message: "当前区域设置已恢复默认。" });
         }}
-        onImportFiles={() => void startImportFlow("files", "builder")}
-        onImportFolder={() => void startImportFlow("folder", "builder")}
+        onImportFiles={() =>
+          void startImportFlow("files", "builder", importedImages.length > 0 ? "append" : "replace")
+        }
+        onImportFolder={() =>
+          void startImportFlow("folder", "builder", importedImages.length > 0 ? "append" : "replace")
+        }
         onClearWorkspace={() =>
           setDecisionDialog({
             title: "清空当前任务？",
