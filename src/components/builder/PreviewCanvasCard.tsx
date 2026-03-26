@@ -48,7 +48,7 @@ export function PreviewCanvasCard({
 
   function locatePointer(clientX: number, clientY: number) {
     const frame = frameRef.current;
-    if (!frame || !region) {
+    if (!frame) {
       return null;
     }
 
@@ -68,16 +68,23 @@ export function PreviewCanvasCard({
     const x = (relativeX - contained.left) / contained.width;
     const y = (relativeY - contained.top) / contained.height;
 
+    const baseRegion = region ?? {
+      x: 0.39,
+      y: 0.39,
+      width: 0.22,
+      height: 0.12,
+    };
+
     return clampRegion({
-      x: x - region.width / 2,
-      y: y - region.height / 2,
-      width: region.width,
-      height: region.height,
+      x: x - baseRegion.width / 2,
+      y: y - baseRegion.height / 2,
+      width: baseRegion.width,
+      height: baseRegion.height,
     });
   }
 
   function handleCanvasPointerDown(event: React.PointerEvent<HTMLDivElement>) {
-    if (!editable || !region || !onRegionChange) {
+    if (!editable || !onRegionChange) {
       return;
     }
 
@@ -222,7 +229,9 @@ export function PreviewCanvasCard({
       </div>
       {editable ? (
         <p className="mt-3 text-xs text-muted">
-          点击预览图可快速定位，拖动蓝色框可移动；右边、下边和右下角手柄可直接缩放区域。
+          {region
+            ? "点击预览图可快速定位，拖动蓝色框可移动；右边、下边和右下角手柄可直接缩放区域。"
+            : "当前没有选区。点击图片可快速创建一个区域，再继续调整。"}
         </p>
       ) : null}
     </section>

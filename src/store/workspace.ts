@@ -101,6 +101,7 @@ type WorkspaceState = {
   currentTemplateId: string | null;
   currentTemplateName: string;
   isTemplateDirty: boolean;
+  hasRegionSelection: boolean;
   cleanupMethod: CleanupMethod;
   sizeHandlingMode: SizeHandlingMode;
   blurSigma: number;
@@ -127,6 +128,8 @@ type WorkspaceState = {
   startNewTemplateSession: () => void;
   setCurrentTemplateName: (name: string) => void;
   markTemplateDirty: (value: boolean) => void;
+  clearRegionSelection: () => void;
+  resetCurrentRegionSettings: () => void;
   setCleanupMethod: (method: CleanupMethod) => void;
   setSizeHandlingMode: (mode: SizeHandlingMode) => void;
   setBlurSigma: (sigma: number) => void;
@@ -169,6 +172,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     currentTemplateId: null,
     currentTemplateName: "",
     isTemplateDirty: false,
+    hasRegionSelection: false,
     cleanupMethod: appSettings.defaultCleanupMethod,
     sizeHandlingMode: appSettings.defaultSizeHandlingMode,
     blurSigma: 10,
@@ -215,6 +219,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         currentTemplateId: null,
         currentTemplateName: "",
         isTemplateDirty: false,
+        hasRegionSelection: false,
         cleanupMethod: state.appSettings.defaultCleanupMethod,
         sizeHandlingMode: state.appSettings.defaultSizeHandlingMode,
         outputDir: state.appSettings.defaultOutputDir,
@@ -232,24 +237,49 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         isTemplateDirty: true,
       }),
     markTemplateDirty: (isTemplateDirty) => set({ isTemplateDirty }),
+    clearRegionSelection: () =>
+      set({
+        hasRegionSelection: false,
+        preview: null,
+        lastBatchResult: null,
+        isTemplateDirty: true,
+      }),
+    resetCurrentRegionSettings: () =>
+      set({
+        cleanupMethod: "blur",
+        sizeHandlingMode: "bottomRight",
+        blurSigma: 10,
+        fillColor: "#f7f9fc",
+        preview: null,
+        lastBatchResult: null,
+        isTemplateDirty: true,
+      }),
     setCleanupMethod: (cleanupMethod) =>
       set({
         cleanupMethod,
+        preview: null,
+        lastBatchResult: null,
         isTemplateDirty: true,
       }),
     setSizeHandlingMode: (sizeHandlingMode) =>
       set({
         sizeHandlingMode,
+        preview: null,
+        lastBatchResult: null,
         isTemplateDirty: true,
       }),
     setBlurSigma: (blurSigma) =>
       set({
         blurSigma,
+        preview: null,
+        lastBatchResult: null,
         isTemplateDirty: true,
       }),
     setFillColor: (fillColor) =>
       set({
         fillColor,
+        preview: null,
+        lastBatchResult: null,
         isTemplateDirty: true,
       }),
     setOutputDir: (outputDir) =>
@@ -263,11 +293,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           ...state.region,
           ...patch,
         },
+        hasRegionSelection: true,
+        preview: null,
+        lastBatchResult: null,
         isTemplateDirty: true,
       })),
     resetRegionFromImage: (image) =>
       set({
         region: image ? computeDoubaoRegion(image.width, image.height) : computeDoubaoRegion(2048, 2048),
+        hasRegionSelection: true,
+        preview: null,
+        lastBatchResult: null,
         isTemplateDirty: true,
       }),
     setImporting: (isImporting) => set({ isImporting }),
@@ -284,6 +320,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           : summary.items[0]
             ? computeDoubaoRegion(summary.items[0].width, summary.items[0].height)
             : computeDoubaoRegion(2048, 2048),
+        hasRegionSelection: state.currentTemplateId ? state.hasRegionSelection : summary.items.length > 0,
         cleanupMethod: state.currentTemplateId
           ? state.cleanupMethod
           : state.appSettings.defaultCleanupMethod,
@@ -332,6 +369,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         warnings: [],
         preview: null,
         lastBatchResult: null,
+        hasRegionSelection: false,
         currentTemplateId: null,
         currentTemplateName: "",
         isTemplateDirty: false,
@@ -395,6 +433,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         templates: nextTemplates,
         currentTemplateId: savedTemplate.id,
         currentTemplateName: savedTemplate.name,
+        hasRegionSelection: true,
         isTemplateDirty: false,
         navigation: {
           ...state.navigation,
@@ -429,6 +468,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         sizeHandlingMode: template.sizeHandlingMode,
         blurSigma: template.blurSigma,
         fillColor: template.fillColor,
+        hasRegionSelection: true,
         isTemplateDirty: false,
         preview: null,
         navigation: {

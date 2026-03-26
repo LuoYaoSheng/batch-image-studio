@@ -23,6 +23,7 @@ export function TemplateBuilderScreen({
   outputDir,
   currentTemplateName,
   isTemplateDirty,
+  hasRegionSelection,
   previewReady,
   isPreviewBusy,
   onSelectImage,
@@ -35,6 +36,8 @@ export function TemplateBuilderScreen({
   onChooseOutputDir,
   onSetCurrentTemplateName,
   onResetRegion,
+  onClearRegionSelection,
+  onResetCurrentRegionSettings,
   onImportFiles,
   onImportFolder,
   onClearWorkspace,
@@ -52,6 +55,7 @@ export function TemplateBuilderScreen({
   outputDir: string;
   currentTemplateName: string;
   isTemplateDirty: boolean;
+  hasRegionSelection: boolean;
   previewReady: boolean;
   isPreviewBusy: boolean;
   onSelectImage: (id: string) => void;
@@ -64,6 +68,8 @@ export function TemplateBuilderScreen({
   onChooseOutputDir: () => void;
   onSetCurrentTemplateName: (value: string) => void;
   onResetRegion: () => void;
+  onClearRegionSelection: () => void;
+  onResetCurrentRegionSettings: () => void;
   onImportFiles: () => void;
   onImportFolder: () => void;
   onClearWorkspace: () => void;
@@ -177,7 +183,7 @@ export function TemplateBuilderScreen({
         <PreviewCanvasCard
           title="样图区域编辑"
           image={selectedImage?.thumbnailDataUrl ?? null}
-          region={region}
+          region={hasRegionSelection ? region : undefined}
           selected={Boolean(selectedImage)}
           editable
           onRegionChange={onUpdateRegion}
@@ -204,18 +210,35 @@ export function TemplateBuilderScreen({
           <div>
             <div className="mb-2 flex items-center justify-between">
               <span className="text-sm font-medium text-ink">区域设置</span>
-              <button
-                className="rounded-xl border border-line bg-surface px-3 py-2 text-xs font-medium"
-                type="button"
-                onClick={onResetRegion}
-              >
-                重置区域
-              </button>
+              <div className="flex gap-2">
+                <button
+                  className="rounded-xl border border-line bg-surface px-3 py-2 text-xs font-medium"
+                  type="button"
+                  onClick={onClearRegionSelection}
+                >
+                  清除选区
+                </button>
+                <button
+                  className="rounded-xl border border-line bg-surface px-3 py-2 text-xs font-medium"
+                  type="button"
+                  onClick={onResetRegion}
+                >
+                  重新框选
+                </button>
+              </div>
             </div>
-            <RegionInputs region={region} onChange={onUpdateRegion} />
-            <div className="mt-4">
-              <RegionSliders region={region} onChange={onUpdateRegion} />
-            </div>
+            {hasRegionSelection ? (
+              <>
+                <RegionInputs region={region} onChange={onUpdateRegion} />
+                <div className="mt-4">
+                  <RegionSliders region={region} onChange={onUpdateRegion} />
+                </div>
+              </>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-line bg-surface px-4 py-6 text-sm text-muted">
+                当前没有选区，请点击图片重新创建处理区域。
+              </div>
+            )}
           </div>
 
           <div>
@@ -300,6 +323,15 @@ export function TemplateBuilderScreen({
                 </div>
               </label>
             ) : null}
+            <div className="mt-3">
+              <button
+                className="rounded-xl border border-line bg-surface px-3 py-2 text-xs font-medium"
+                type="button"
+                onClick={onResetCurrentRegionSettings}
+              >
+                重置当前区域设置
+              </button>
+            </div>
           </div>
 
           <details className="rounded-[24px] border border-line bg-surface px-4 py-4">

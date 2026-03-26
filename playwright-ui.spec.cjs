@@ -561,3 +561,76 @@ test("removing last image confirms and returns home", async ({ page }) => {
   await page.getByRole("button", { name: "移除并返回首页" }).click();
   await expect(page.getByText("最近模板", { exact: true }).first()).toBeVisible();
 });
+
+test("builder disables preview and save when region selection is cleared", async ({ page }) => {
+  const dataUrl =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==";
+
+  await page.goto("http://127.0.0.1:4174/", { waitUntil: "networkidle" });
+  await seedStore(page, {
+    navigation: { currentScreen: "builder", builderMode: "edit", pendingImportDestination: "builder" },
+    importedImages: [
+      {
+        id: "img-1",
+        path: "/tmp/a.png",
+        name: "IMG_0001.png",
+        width: 1600,
+        height: 900,
+        format: "png",
+        fileSize: 102400,
+        thumbnailDataUrl: dataUrl,
+      },
+    ],
+    selectedImageId: "img-1",
+    currentTemplateName: "测试模板",
+    hasRegionSelection: true,
+    region: { x: 0.68, y: 0.76, width: 0.22, height: 0.12 },
+  });
+
+  await page.getByRole("button", { name: "清除选区" }).click();
+  await expect(page.getByText("当前没有选区，请重新框选。")).toBeVisible();
+  await expect(page.getByRole("button", { name: "保存模板" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "预览效果" })).toBeDisabled();
+});
+
+test("builder reset current region settings restores defaults", async ({ page }) => {
+  const dataUrl =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==";
+
+  await page.goto("http://127.0.0.1:4174/", { waitUntil: "networkidle" });
+  await seedStore(page, {
+    navigation: { currentScreen: "builder", builderMode: "edit", pendingImportDestination: "builder" },
+    importedImages: [
+      {
+        id: "img-1",
+        path: "/tmp/a.png",
+        name: "IMG_0001.png",
+        width: 1600,
+        height: 900,
+        format: "png",
+        fileSize: 102400,
+        thumbnailDataUrl: dataUrl,
+      },
+    ],
+    selectedImageId: "img-1",
+    currentTemplateName: "测试模板",
+    cleanupMethod: "fill",
+    sizeHandlingMode: "relative",
+    blurSigma: 33,
+    fillColor: "#ffffff",
+    hasRegionSelection: true,
+    region: { x: 0.68, y: 0.76, width: 0.22, height: 0.12 },
+  });
+
+  await page.getByRole("button", { name: "重置当前区域设置" }).click();
+  await expect(page.getByText("当前区域设置已恢复默认。")).toBeVisible();
+  await page.waitForFunction(() => {
+    const state = window.__batchImageStudioStore.getState();
+    return (
+      state.cleanupMethod === "blur" &&
+      state.sizeHandlingMode === "bottomRight" &&
+      state.blurSigma === 10 &&
+      state.fillColor === "#f7f9fc"
+    );
+  });
+});

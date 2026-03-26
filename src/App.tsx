@@ -231,6 +231,7 @@ export default function App() {
     currentTemplateId,
     currentTemplateName,
     isTemplateDirty,
+    hasRegionSelection,
     importedImages,
     selectedImageId,
     warnings,
@@ -255,6 +256,8 @@ export default function App() {
     setPendingImportDestination,
     startNewTemplateSession,
     setCurrentTemplateName,
+    clearRegionSelection,
+    resetCurrentRegionSettings,
     setCleanupMethod,
     setSizeHandlingMode,
     setBlurSigma,
@@ -1134,6 +1137,10 @@ export default function App() {
   }
 
   function handlePreviewEntry() {
+    if (!hasRegionSelection) {
+      setNotification({ kind: "info", message: "当前没有选区，请先框选处理区域。" });
+      return;
+    }
     setCurrentScreen("preview");
     setAutoPreviewOnEnter(true);
   }
@@ -1243,7 +1250,7 @@ export default function App() {
         <button
           className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-medium"
           type="button"
-          disabled={!currentTemplateName.trim()}
+          disabled={!currentTemplateName.trim() || !hasRegionSelection}
           onClick={saveCurrentTemplate}
         >
           保存模板
@@ -1274,7 +1281,7 @@ export default function App() {
         <button
           className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-medium disabled:opacity-60"
           type="button"
-          disabled={importedImages.length === 0 || isSelectedImageBusy}
+          disabled={importedImages.length === 0 || !hasRegionSelection || isSelectedImageBusy}
           onClick={handlePreviewEntry}
         >
           预览效果
@@ -1282,7 +1289,7 @@ export default function App() {
         <button
           className="rounded-2xl bg-primary px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
           type="button"
-          disabled={!preview || isBatchRunning}
+          disabled={!preview || !hasRegionSelection || isBatchRunning}
           onClick={() => void runBatch()}
         >
           开始批量处理
@@ -1400,6 +1407,7 @@ export default function App() {
         outputDir={outputDir}
         currentTemplateName={currentTemplateName}
         isTemplateDirty={isTemplateDirty}
+        hasRegionSelection={hasRegionSelection}
         previewReady={Boolean(preview)}
         isPreviewBusy={isSelectedImageBusy}
         onSelectImage={selectImage}
@@ -1412,6 +1420,14 @@ export default function App() {
         onChooseOutputDir={() => void chooseOutputDir()}
         onSetCurrentTemplateName={setCurrentTemplateName}
         onResetRegion={() => resetRegionFromImage(selectedImage)}
+        onClearRegionSelection={() => {
+          clearRegionSelection();
+          setNotification({ kind: "info", message: "当前没有选区，请重新框选。" });
+        }}
+        onResetCurrentRegionSettings={() => {
+          resetCurrentRegionSettings();
+          setNotification({ kind: "success", message: "当前区域设置已恢复默认。" });
+        }}
         onImportFiles={() => void startImportFlow("files", "builder")}
         onImportFolder={() => void startImportFlow("folder", "builder")}
         onClearWorkspace={() =>
