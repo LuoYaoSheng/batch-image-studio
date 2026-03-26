@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AppShell } from "./components/layout/AppShell";
+import { DecisionDialog, type DecisionDialogAction } from "./components/layout/DecisionDialog";
 import { BatchScreen } from "./screens/BatchScreen";
 import { HistoryScreen } from "./screens/HistoryScreen";
 import { HomeScreen } from "./screens/HomeScreen";
@@ -77,6 +78,14 @@ type PreviewTaskState = {
   stage: PreviewTaskEvent["stage"];
   message: string;
 };
+
+type DecisionDialogState = {
+  title: string;
+  description: string;
+  cancelAction: DecisionDialogAction;
+  primaryAction: DecisionDialogAction;
+  secondaryAction?: DecisionDialogAction;
+} | null;
 
 const supportedFilters = [
   {
@@ -201,6 +210,7 @@ export default function App() {
     Record<string, PreviewTaskState | undefined>
   >({});
   const [autoPreviewOnEnter, setAutoPreviewOnEnter] = useState(false);
+  const [decisionDialog, setDecisionDialog] = useState<DecisionDialogState>(null);
   const previewTaskContextByTaskIdRef = useRef<
     Record<string, { imageId: string; sourcePath: string; signature: string }>
   >({});
@@ -296,6 +306,13 @@ export default function App() {
       : "尚未生成预览";
   const processedPreviewSrc = preview?.processedImagePath ? convertFileSrc(preview.processedImagePath) : null;
   const processedPreviewDisplaySrc = preview?.processedDisplayDataUrl ?? processedPreviewSrc;
+  const hasTaskContent =
+    importedImages.length > 0 ||
+    Boolean(currentTemplateId) ||
+    Boolean(currentTemplateName.trim()) ||
+    Boolean(preview) ||
+    Boolean(lastBatchResult);
+  const hasUnsavedTask = isTemplateDirty || importedImages.length > 0;
 
   useEffect(() => {
     selectedImageIdRef.current = selectedImageId;
@@ -1014,9 +1031,44 @@ export default function App() {
   }
 
   async function handleUseTemplate(templateId: string) {
+    if (hasTaskContent) {
+      setDecisionDialog({
+        title: "应用新模板到当前任务？",
+        description:
+          "你可以将新模板应用到当前已导入图片，也可以清空当前任务后重新开始。已有预览结果会被清除。",
+        secondaryAction: {
+          label: "取消",
+          tone: "neutral",
+          onClick: closeDecisionDialog,
+        },
+        cancelAction: {
+          label: "应用到当前图片",
+          tone: "neutral",
+          onClick: () => {
+            applyTemplate(templateId);
+            setCurrentScreen("builder");
+            setDecisionDialog(null);
+            setNotification({ kind: "success", message: "已应用新模板，请重新预览效果。" });
+          },
+        },
+        primaryAction: {
+          label: "清空任务后应用",
+          tone: "primary",
+          onClick: () => {
+            clearWorkspace();
+            applyTemplate(templateId);
+            setCurrentScreen("builder");
+            setDecisionDialog(null);
+            setNotification({ kind: "success", message: "模板已应用，现在可以导入图片或调整参数。" });
+          },
+        },
+      });
+      return;
+    }
+
     applyTemplate(templateId);
-    setPendingImportDestination("preview");
-    await importWithDialog("files");
+    setCurrentScreen("builder");
+    setNotification({ kind: "success", message: "模板已应用，现在可以导入图片或调整参数。" });
   }
 
   function handleEditTemplate(templateId: string) {
@@ -1039,6 +1091,38 @@ export default function App() {
 
   function handleNotificationClose() {
     setNotification(null);
+  }
+
+  function closeDecisionDialog() {
+    setDecisionDialog(null);
+  }
+
+  function clearTaskAndGoHome() {
+    clearWorkspace();
+    setCurrentScreen("home");
+    setDecisionDialog(null);
+  }
+
+  function navigateWithGuard(nextScreen: typeof currentScreen) {
+    if (currentScreen === "builder" && nextScreen === "home" && hasUnsavedTask) {
+      setDecisionDialog({
+        title: "离开当前任务？",
+        description: "当前任务还有未保存内容。你可以继续编辑，或清空当前任务后返回首页。",
+        cancelAction: {
+          label: "继续编辑",
+          tone: "neutral",
+          onClick: closeDecisionDialog,
+        },
+        primaryAction: {
+          label: "清空并返回首页",
+          tone: "danger",
+          onClick: clearTaskAndGoHome,
+        },
+      });
+      return;
+    }
+
+    setCurrentScreen(nextScreen);
   }
 
   function handlePreviewEntry() {
@@ -1136,7 +1220,7 @@ export default function App() {
         <button
           className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-medium"
           type="button"
-          onClick={() => setCurrentScreen("builder")}
+          onClick={() => navigateWithGuard("builder")}
         >
           返回调整
         </button>
@@ -1186,7 +1270,7 @@ export default function App() {
         <button
           className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-medium"
           type="button"
-          onClick={() => setCurrentScreen("home")}
+          onClick={() => navigateWithGuard("home")}
         >
           返回首页
         </button>
@@ -1233,6 +1317,24 @@ export default function App() {
         onChooseOutputDir={() => void chooseOutputDir()}
         onSetCurrentTemplateName={setCurrentTemplateName}
         onResetRegion={() => resetRegionFromImage(selectedImage)}
+        onImportFiles={() => void startImportFlow("files", "builder")}
+        onImportFolder={() => void startImportFlow("folder", "builder")}
+        onClearWorkspace={() =>
+          setDecisionDialog({
+            title: "清空当前任务？",
+            description: "清空后将移除当前导入的图片、预览结果和未保存的编辑内容，并返回首页。",
+            cancelAction: {
+              label: "取消",
+              tone: "neutral",
+              onClick: closeDecisionDialog,
+            },
+            primaryAction: {
+              label: "清空并返回首页",
+              tone: "danger",
+              onClick: clearTaskAndGoHome,
+            },
+          })
+        }
       />
     );
   } else if (currentScreen === "preview") {
@@ -1330,7 +1432,7 @@ export default function App() {
 
       <AppShell
         currentScreen={currentScreen}
-        onNavigate={setCurrentScreen}
+        onNavigate={navigateWithGuard}
         title={currentScreenMeta.title}
         subtitle={
           bootstrapState ? `${currentScreenMeta.subtitle} · ${bootstrapState.platform} · ${bootstrapState.appVersion}` : currentScreenMeta.subtitle
@@ -1340,6 +1442,15 @@ export default function App() {
       >
         {content}
       </AppShell>
+      {decisionDialog ? (
+        <DecisionDialog
+          title={decisionDialog.title}
+          description={decisionDialog.description}
+          cancelAction={decisionDialog.cancelAction}
+          secondaryAction={decisionDialog.secondaryAction}
+          primaryAction={decisionDialog.primaryAction}
+        />
+      ) : null}
     </div>
   );
 }

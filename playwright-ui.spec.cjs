@@ -107,9 +107,6 @@ test("screen shell renders and can switch across all pages", async ({ page }) =>
 
   await expect(page.getByText("模板构建", { exact: true }).first()).toBeVisible();
 
-  await page.getByRole("button", { name: "首页" }).click();
-  await expect(page.getByText("最近模板", { exact: true }).first()).toBeVisible();
-
   await page.getByRole("button", { name: "效果预览" }).click();
   await expect(page.getByText("模板名称", { exact: true }).first()).toBeVisible();
 
@@ -124,6 +121,10 @@ test("screen shell renders and can switch across all pages", async ({ page }) =>
 
   await page.getByRole("button", { name: "设置" }).click();
   await expect(page.getByText("默认处理方式", { exact: true }).first()).toBeVisible();
+
+  await page.getByRole("button", { name: "首页" }).click();
+  await page.getByRole("button", { name: "清空并返回首页" }).click();
+  await expect(page.getByText("最近模板", { exact: true }).first()).toBeVisible();
 });
 
 test("browser preview guards tauri-only actions with notifications", async ({ page }) => {
@@ -345,4 +346,141 @@ test("history open directory action is guarded in browser preview", async ({ pag
 
   await page.getByRole("button", { name: "打开目录" }).click();
   await expect(page.getByText("浏览器预览环境不支持打开系统文件管理器，请在 Tauri 桌面环境中验证。")).toBeVisible();
+});
+
+test("home applying template routes to builder instead of immediate file import", async ({ page }) => {
+  const dataUrl =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==";
+
+  await page.goto("http://127.0.0.1:4174/", { waitUntil: "networkidle" });
+  await seedStore(page, {
+    navigation: { currentScreen: "home", builderMode: "new", pendingImportDestination: "builder" },
+    templates: [
+      {
+        id: "tpl-1",
+        name: "右下角小字清理",
+        region: { x: 0.68, y: 0.76, width: 0.22, height: 0.12 },
+        cleanupMethod: "fill",
+        sizeHandlingMode: "relative",
+        blurSigma: 8,
+        fillColor: "#ffffff",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        previewImage: dataUrl,
+      },
+    ],
+  });
+
+  await page.getByRole("button", { name: "右下角小字清理" }).first().click();
+  await expect(page.getByText("模板已应用，现在可以导入图片或调整参数。")).toBeVisible();
+  await expect(page.getByText("模板构建", { exact: true }).first()).toBeVisible();
+});
+
+test("builder clear task uses confirm dialog and returns home", async ({ page }) => {
+  const dataUrl =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==";
+
+  await page.goto("http://127.0.0.1:4174/", { waitUntil: "networkidle" });
+  await seedStore(page, {
+    navigation: { currentScreen: "builder", builderMode: "edit", pendingImportDestination: "builder" },
+    importedImages: [
+      {
+        id: "img-1",
+        path: "/tmp/a.png",
+        name: "IMG_0001.png",
+        width: 1600,
+        height: 900,
+        format: "png",
+        fileSize: 102400,
+        thumbnailDataUrl: dataUrl,
+      },
+    ],
+    selectedImageId: "img-1",
+    currentTemplateName: "测试模板",
+    isTemplateDirty: true,
+    region: { x: 0.68, y: 0.76, width: 0.22, height: 0.12 },
+    cleanupMethod: "blur",
+    sizeHandlingMode: "bottomRight",
+  });
+
+  await page.getByRole("button", { name: "清空当前任务" }).click();
+  await expect(page.getByText("清空当前任务？")).toBeVisible();
+  await page.getByRole("button", { name: "清空并返回首页" }).click();
+  await expect(page.getByText("最近模板", { exact: true }).first()).toBeVisible();
+});
+
+test("builder navigation to home is guarded when task is dirty", async ({ page }) => {
+  const dataUrl =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==";
+
+  await page.goto("http://127.0.0.1:4174/", { waitUntil: "networkidle" });
+  await seedStore(page, {
+    navigation: { currentScreen: "builder", builderMode: "edit", pendingImportDestination: "builder" },
+    importedImages: [
+      {
+        id: "img-1",
+        path: "/tmp/a.png",
+        name: "IMG_0001.png",
+        width: 1600,
+        height: 900,
+        format: "png",
+        fileSize: 102400,
+        thumbnailDataUrl: dataUrl,
+      },
+    ],
+    selectedImageId: "img-1",
+    currentTemplateName: "测试模板",
+    isTemplateDirty: true,
+  });
+
+  await page.getByRole("button", { name: "首页" }).click();
+  await expect(page.getByText("离开当前任务？")).toBeVisible();
+  await page.getByRole("button", { name: "继续编辑" }).click();
+  await expect(page.getByText("模板构建", { exact: true }).first()).toBeVisible();
+});
+
+test("template switching during active task shows decision dialog", async ({ page }) => {
+  const dataUrl =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==";
+
+  await page.goto("http://127.0.0.1:4174/", { waitUntil: "networkidle" });
+  await seedStore(page, {
+    navigation: { currentScreen: "templates", builderMode: "edit", pendingImportDestination: "builder" },
+    importedImages: [
+      {
+        id: "img-1",
+        path: "/tmp/a.png",
+        name: "IMG_0001.png",
+        width: 1600,
+        height: 900,
+        format: "png",
+        fileSize: 102400,
+        thumbnailDataUrl: dataUrl,
+      },
+    ],
+    selectedImageId: "img-1",
+    currentTemplateId: "tpl-current",
+    currentTemplateName: "旧模板",
+    isTemplateDirty: true,
+    templates: [
+      {
+        id: "tpl-1",
+        name: "右下角小字清理",
+        region: { x: 0.68, y: 0.76, width: 0.22, height: 0.12 },
+        cleanupMethod: "fill",
+        sizeHandlingMode: "relative",
+        blurSigma: 8,
+        fillColor: "#ffffff",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        previewImage: dataUrl,
+      },
+    ],
+  });
+
+  await page.getByRole("button", { name: "应用模板" }).click();
+  await expect(page.getByText("应用新模板到当前任务？")).toBeVisible();
+  await page.getByRole("button", { name: "应用到当前图片" }).click();
+  await expect(page.getByText("已应用新模板，请重新预览效果。")).toBeVisible();
+  await expect(page.getByText("模板构建", { exact: true }).first()).toBeVisible();
 });

@@ -35,6 +35,9 @@ export function TemplateBuilderScreen({
   onChooseOutputDir,
   onSetCurrentTemplateName,
   onResetRegion,
+  onImportFiles,
+  onImportFolder,
+  onClearWorkspace,
 }: {
   importedImages: ImportedImage[];
   selectedImage: ImportedImage | null;
@@ -60,6 +63,9 @@ export function TemplateBuilderScreen({
   onChooseOutputDir: () => void;
   onSetCurrentTemplateName: (value: string) => void;
   onResetRegion: () => void;
+  onImportFiles: () => void;
+  onImportFolder: () => void;
+  onClearWorkspace: () => void;
 }) {
   return (
     <div className="grid h-full min-h-[720px] grid-cols-[280px_minmax(0,1fr)_360px] gap-5">
@@ -86,13 +92,40 @@ export function TemplateBuilderScreen({
         </div>
 
         <div className="mt-5">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-sm font-semibold text-ink">样图列表</p>
-            <p className="text-xs text-muted">{importedImages.length} 张</p>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-ink">样图列表</p>
+              <p className="text-xs text-muted">{importedImages.length} 张</p>
+            </div>
+            {importedImages.length > 0 ? (
+              <button
+                className="rounded-xl border border-line bg-surface px-3 py-2 text-xs font-medium text-muted hover:bg-white hover:text-ink"
+                type="button"
+                onClick={onClearWorkspace}
+              >
+                清空当前任务
+              </button>
+            ) : null}
           </div>
           {importedImages.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-line bg-surface px-4 py-8 text-sm text-muted">
-              当前正在编辑模板配置。导入一组样图后，可以继续在画布上调整区域并生成预览。
+              <p>当前正在编辑模板配置。导入一组样图后，可以继续在画布上调整区域并生成预览。</p>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <button
+                  className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white"
+                  type="button"
+                  onClick={onImportFiles}
+                >
+                  导入图片
+                </button>
+                <button
+                  className="rounded-xl border border-line bg-white px-4 py-2 text-sm font-medium"
+                  type="button"
+                  onClick={onImportFolder}
+                >
+                  导入文件夹
+                </button>
+              </div>
             </div>
           ) : (
             <div className="max-h-[calc(100vh-360px)] overflow-y-auto pr-1">
