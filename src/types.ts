@@ -64,6 +64,7 @@ export type PreviewCacheEntry = {
 export type BatchEntry = {
   sourcePath: string;
   outputPath: string;
+  cachedProcessedPath?: string | null;
   success: boolean;
   error?: string | null;
 };
@@ -83,6 +84,18 @@ export type BatchProgressEvent = {
   failedCount: number;
   currentFile: string;
   stage: "started" | "processing" | "completed";
+};
+
+export type BatchTaskStarted = {
+  taskId: string;
+};
+
+export type BatchTaskEvent = {
+  taskId: string;
+  stage: "started" | "completed" | "error";
+  message: string;
+  result?: BatchResult | null;
+  error?: string | null;
 };
 
 export type Template = {

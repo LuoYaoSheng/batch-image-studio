@@ -7,6 +7,8 @@ import { useWorkspaceStore } from "./store/workspace";
 import type {
   BatchResult,
   BatchProgressEvent,
+  BatchTaskEvent,
+  BatchTaskStarted,
   CleanupMethod,
   HistoryEntry,
   ImportSummary,
@@ -63,13 +65,29 @@ type BatchRequest = {
   }>;
 };
 
-type PreviewPhase = "idle" | "reading" | "warming-model" | "processing" | "rendering";
 type DragOverlayState = "idle" | "hover" | "importing";
 type PreviewTaskState = {
   taskId: string;
   stage: PreviewTaskEvent["stage"];
   message: string;
 };
+
+type BatchPreviewProgress = {
+  total: number;
+  completed: number;
+  currentImageName: string;
+};
+
+function buildPreviewSignature(params: {
+  sourcePath: string;
+  region: Region;
+  cleanupMethod: CleanupMethod;
+  sizeHandlingMode: SizeHandlingMode;
+  blurSigma: number;
+  fillColor: string;
+}) {
+  return JSON.stringify(params);
+}
 
 function isPreviewTaskActive(stage?: PreviewTaskEvent["stage"]) {
   return Boolean(stage && stage !== "completed" && stage !== "error");
@@ -799,14 +817,16 @@ export default function App() {
   const [bootstrapState, setBootstrapState] = useState<BootstrapState | null>(null);
   const [resultViewMode, setResultViewMode] = useState<"processed" | "source" | "mask">("processed");
   const [dragOverlayState, setDragOverlayState] = useState<DragOverlayState>("idle");
-  const [previewPhase, setPreviewPhase] = useState<PreviewPhase>("idle");
   const [batchProgress, setBatchProgress] = useState<BatchProgressEvent | null>(null);
   const [batchStartedAt, setBatchStartedAt] = useState<number | null>(null);
   const [showFailedEntries, setShowFailedEntries] = useState(false);
+  const [batchPreviewProgress, setBatchPreviewProgress] = useState<BatchPreviewProgress | null>(null);
   const [maskPreviewDataUrl, setMaskPreviewDataUrl] = useState<string | null>(null);
   const [maskPreviewImageId, setMaskPreviewImageId] = useState<string | null>(null);
+  const [maskPreviewMessage, setMaskPreviewMessage] = useState("");
   const [previewCache, setPreviewCache] = useState<PreviewCache | null>(null);
   const [previewCacheMap, setPreviewCacheMap] = useState<Record<string, PreviewCacheEntry>>({});
+  const [processedCacheMap, setProcessedCacheMap] = useState<Record<string, PreviewCache>>({});
   const [previewTaskStateByImageId, setPreviewTaskStateByImageId] = useState<
     Record<string, PreviewTaskState | undefined>
   >({});
@@ -817,6 +837,11 @@ export default function App() {
   const lastImportAtRef = useRef(0);
   const dragSessionLockedRef = useRef(false);
   const modelWarmupAttemptedRef = useRef(false);
+  const activeBatchTaskIdRef = useRef<string | null>(null);
+  const activeBatchSignatureByPathRef = useRef<Record<string, string>>({});
+  const previewTaskPromiseRef = useRef<
+    Record<string, { resolve: () => void; reject: (error: Error) => void }>
+  >({});
   const {
     importedImages,
     selectedImageId,
@@ -900,19 +925,15 @@ export default function App() {
     batch_running: "正在批量导出",
     batch_complete: "批处理已完成",
   }[workflowStage];
-  const previewPhaseLabel = {
-    idle: "",
-    reading: "正在读取原图...",
-    "warming-model": "正在预热 AI 引擎...",
-    processing: "正在处理水印区域...",
-    rendering: "正在渲染结果...",
-  }[previewPhase];
+  const previewLoadingMessage = isSelectedMaskPreviewLoading
+    ? (maskPreviewMessage || "正在生成 Mask...")
+    : (selectedPreviewTaskState?.message || "");
   const processedPreviewSrc = preview?.processedImagePath
     ? convertFileSrc(preview.processedImagePath)
     : null;
   const processedPreviewDisplaySrc = preview?.processedDisplayDataUrl ?? processedPreviewSrc;
   const currentPreviewSignature = selectedImage
-    ? JSON.stringify({
+    ? buildPreviewSignature({
         sourcePath: selectedImage.path,
         region,
         cleanupMethod,
@@ -921,6 +942,7 @@ export default function App() {
         fillColor,
       })
     : "";
+  const isBatchPreviewRunning = batchPreviewProgress !== null;
 
   useEffect(() => {
     const shouldSetPreviewLoading = isAnyPreviewTaskRunning || maskPreviewImageId !== null;
@@ -951,6 +973,7 @@ export default function App() {
   useEffect(() => {
     let mounted = true;
     let unlistenBatch: (() => void) | undefined;
+    let unlistenBatchTask: (() => void) | undefined;
     let unlistenPreview: (() => void) | undefined;
 
     listen<BatchProgressEvent>("batch-progress", (event) => {
@@ -967,6 +990,105 @@ export default function App() {
       .catch((error) => {
         logUi("batch-progress:listener-error", { error: String(error) });
         console.error("批处理进度监听失败:", error);
+      });
+
+    listen<BatchTaskEvent>("batch-task", (event) => {
+      if (!mounted) {
+        return;
+      }
+
+      const payload = event.payload;
+      logUi("batch-task:event", payload as unknown as Record<string, unknown>);
+      if (activeBatchTaskIdRef.current && payload.taskId !== activeBatchTaskIdRef.current) {
+        return;
+      }
+
+      switch (payload.stage) {
+        case "started":
+          setBatchRunning(true);
+          break;
+        case "completed":
+          if (payload.result) {
+            const batchResult = payload.result;
+            setLastBatchResult(batchResult);
+            setProcessedCacheMap((current) => {
+              const next = { ...current };
+              for (const entry of batchResult.entries) {
+                if (!entry.success) {
+                  continue;
+                }
+                const signature = activeBatchSignatureByPathRef.current[entry.sourcePath];
+                if (!signature) {
+                  continue;
+                }
+                next[signature] = {
+                  sourcePath: entry.sourcePath,
+                  cachedProcessedPath: entry.cachedProcessedPath ?? entry.outputPath,
+                  signature,
+                };
+              }
+              return next;
+            });
+            setPreviewTaskStateByImageId((current) => {
+              const next = { ...current };
+              for (const entry of batchResult.entries) {
+                if (!entry.success) {
+                  continue;
+                }
+                const image = importedImages.find((item) => item.path === entry.sourcePath);
+                if (!image) {
+                  continue;
+                }
+                next[image.id] = {
+                  taskId: activeBatchTaskIdRef.current ?? payload.taskId,
+                  stage: "completed",
+                  message: "批处理已生成缓存",
+                };
+              }
+              return next;
+            });
+            logUi("batch-cache:merged", {
+              taskId: payload.taskId,
+              cachedCount: batchResult.entries.filter((entry) => entry.success).length,
+            });
+            addHistory({
+              id: crypto.randomUUID(),
+              createdAt: new Date().toISOString(),
+              importedCount: importedImages.length,
+              successCount: batchResult.successCount,
+              failedCount: batchResult.failedCount,
+              outputDir: batchResult.outputDir,
+              cleanupMethod,
+            });
+            setNotification({
+              kind: "success",
+              message: `批处理完成：共 ${batchResult.processedCount} 张，${batchResult.successCount} 成功，${batchResult.failedCount} 失败。`,
+            });
+          }
+          setBatchRunning(false);
+          activeBatchTaskIdRef.current = null;
+          logUi("batch:done-event", { taskId: payload.taskId });
+          break;
+        case "error":
+          setBatchRunning(false);
+          setBatchStartedAt(null);
+          activeBatchTaskIdRef.current = null;
+          logUi("batch:error-event", {
+            taskId: payload.taskId,
+            error: payload.error ?? payload.message,
+          });
+          setNotification({ kind: "error", message: `批处理失败：${payload.error ?? payload.message}` });
+          break;
+        default:
+          break;
+      }
+    })
+      .then((fn) => {
+        unlistenBatchTask = fn;
+        logUi("batch-task:listener-ready");
+      })
+      .catch((error) => {
+        logUi("batch-task:listener-error", { error: String(error) });
       });
 
     listen<PreviewTaskEvent>("preview-task", (event) => {
@@ -992,41 +1114,35 @@ export default function App() {
       }));
 
       switch (payload.stage) {
-        case "model-loading":
-          if (isCurrentImage) {
-            setPreviewPhase("warming-model");
-          }
-          break;
-        case "processing":
-          if (isCurrentImage) {
-            setPreviewPhase("processing");
-          }
-          break;
-        case "saving":
-          if (isCurrentImage) {
-            setPreviewPhase("rendering");
-          }
-          break;
         case "completed":
           if (payload.result) {
             const { imageId, sourcePath, signature } = context;
+            const previewResult = payload.result;
             if (isCurrentImage) {
-              setPreview(payload.result);
+              setPreview(previewResult);
             }
             const cacheEntry = {
-              preview: payload.result,
+              preview: previewResult,
               maskDataUrl: null,
               sourcePath,
               signature,
             } satisfies PreviewCacheEntry;
             setPreviewCache({
               sourcePath,
-              cachedProcessedPath: payload.result.cachedProcessedPath,
+              cachedProcessedPath: previewResult.cachedProcessedPath,
               signature,
             });
             setPreviewCacheMap((current) => ({
               ...current,
               [signature]: cacheEntry,
+            }));
+            setProcessedCacheMap((current) => ({
+              ...current,
+              [signature]: {
+                sourcePath,
+                cachedProcessedPath: previewResult.cachedProcessedPath,
+                signature,
+              },
             }));
             setPreviewTaskStateByImageId((current) => ({
               ...current,
@@ -1037,10 +1153,10 @@ export default function App() {
               },
             }));
           }
+          previewTaskPromiseRef.current[payload.taskId]?.resolve();
+          delete previewTaskPromiseRef.current[payload.taskId];
           delete previewTaskContextByTaskIdRef.current[payload.taskId];
           if (isCurrentImage) {
-            setPreviewPhase("idle");
-            setPreviewLoading(false);
             setNotification({ kind: "success", message: "样张预览已更新，可以继续检查效果或直接批量导出。" });
           }
           break;
@@ -1053,10 +1169,12 @@ export default function App() {
               message: payload.error ?? payload.message,
             },
           }));
+          previewTaskPromiseRef.current[payload.taskId]?.reject(
+            new Error(payload.error ?? payload.message),
+          );
+          delete previewTaskPromiseRef.current[payload.taskId];
           delete previewTaskContextByTaskIdRef.current[payload.taskId];
           if (isCurrentImage) {
-            setPreviewPhase("idle");
-            setPreviewLoading(false);
             setNotification({ kind: "error", message: `预览生成失败：${payload.error ?? payload.message}` });
           }
           break;
@@ -1075,9 +1193,10 @@ export default function App() {
     return () => {
       mounted = false;
       unlistenBatch?.();
+      unlistenBatchTask?.();
       unlistenPreview?.();
     };
-  }, [setPreview]);
+  }, [addHistory, cleanupMethod, importedImages.length, setBatchRunning, setLastBatchResult, setPreview]);
 
   useEffect(() => {
     setShowFailedEntries(false);
@@ -1145,22 +1264,40 @@ export default function App() {
     }
 
     const cached = previewCacheMap[currentPreviewSignature];
-    if (!cached) {
+    if (cached) {
+      logUi("preview-cache:restore", {
+        sourcePath: cached.sourcePath,
+        hasMask: Boolean(cached.maskDataUrl),
+      });
+      setPreview(cached.preview);
+      setPreviewCache({
+        sourcePath: cached.sourcePath,
+        cachedProcessedPath: cached.preview.cachedProcessedPath,
+        signature: cached.signature,
+      });
+      setMaskPreviewDataUrl(cached.maskDataUrl);
       return;
     }
 
-    logUi("preview-cache:restore", {
-      sourcePath: cached.sourcePath,
-      hasMask: Boolean(cached.maskDataUrl),
+    const processedCache = processedCacheMap[currentPreviewSignature];
+    if (!processedCache || !selectedImage) {
+      return;
+    }
+
+    logUi("processed-cache:restore", {
+      sourcePath: processedCache.sourcePath,
+      cachedProcessedPath: processedCache.cachedProcessedPath,
     });
-    setPreview(cached.preview);
-    setPreviewCache({
-      sourcePath: cached.sourcePath,
-      cachedProcessedPath: cached.preview.cachedProcessedPath,
-      signature: cached.signature,
+    setPreview({
+      processedImagePath: processedCache.cachedProcessedPath,
+      processedDisplayDataUrl: "",
+      outputWidth: selectedImage.width,
+      outputHeight: selectedImage.height,
+      cachedProcessedPath: processedCache.cachedProcessedPath,
     });
-    setMaskPreviewDataUrl(cached.maskDataUrl);
-  }, [currentPreviewSignature, previewCacheMap, setPreview]);
+    setPreviewCache(processedCache);
+    setMaskPreviewDataUrl(null);
+  }, [currentPreviewSignature, previewCacheMap, processedCacheMap, selectedImage, setPreview]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -1246,6 +1383,7 @@ export default function App() {
     setMaskPreviewDataUrl(null);
     setPreviewCache(null);
     setPreviewCacheMap({});
+    setProcessedCacheMap({});
     setPreviewTaskStateByImageId({});
     previewTaskContextByTaskIdRef.current = {};
     const summary = await invoke<ImportSummary>("import_paths", { paths });
@@ -1342,66 +1480,103 @@ export default function App() {
     }
   }
 
+  function getSignatureForImage(image: ImportedImage) {
+    return buildPreviewSignature({
+      sourcePath: image.path,
+      region,
+      cleanupMethod,
+      sizeHandlingMode,
+      blurSigma,
+      fillColor,
+    });
+  }
+
+  function hasProcessedCacheForImage(image: ImportedImage) {
+    return Boolean(processedCacheMap[getSignatureForImage(image)]);
+  }
+
+  async function startPreviewForImage(image: ImportedImage, trigger: "manual" | "auto" | "batch") {
+    const signature = getSignatureForImage(image);
+    logUi("preview:start", {
+      trigger,
+      imageId: image.id,
+      cleanupMethod,
+      sizeHandlingMode,
+    });
+    setPreviewTaskStateByImageId((current) => ({
+      ...current,
+      [image.id]: {
+        taskId: current[image.id]?.taskId ?? "",
+        stage: "started",
+        message: "正在读取原图...",
+      },
+    }));
+
+    if (!isModelLoaded && !isModelLoading) {
+      setPreviewTaskStateByImageId((current) => ({
+        ...current,
+        [image.id]: {
+          taskId: current[image.id]?.taskId ?? "",
+          stage: "started",
+          message: "正在预热 AI 引擎...",
+        },
+      }));
+      await waitForUiCommit();
+      await ensureModelReady("preview");
+    }
+
+    await waitForUiCommit();
+    const started = await invoke<PreviewTaskStarted>("start_preview_task", {
+      request: {
+        path: image.path,
+        region,
+        baseWidth: image.width,
+        baseHeight: image.height,
+        sizeHandlingMode,
+        cleanupMethod,
+        blurSigma,
+        fillColor,
+      } satisfies PreviewRequest,
+    });
+    previewTaskContextByTaskIdRef.current[started.taskId] = {
+      imageId: image.id,
+      sourcePath: image.path,
+      signature,
+    };
+    const taskPromise = new Promise<void>((resolve, reject) => {
+      previewTaskPromiseRef.current[started.taskId] = { resolve, reject };
+    });
+    setPreviewTaskStateByImageId((current) => ({
+      ...current,
+      [image.id]: {
+        taskId: started.taskId,
+        stage: "started",
+        message: "预览任务已提交，等待后台处理...",
+      },
+    }));
+    logUi("preview:task-started", { trigger, taskId: started.taskId, imageId: image.id });
+    return taskPromise;
+  }
+
   async function refreshPreview(trigger: "manual" | "auto" = "manual") {
     if (!selectedImage || isSelectedImageBusy) {
       return;
     }
 
-    logUi("preview:start", {
-      trigger,
-      imageId: selectedImage.id,
-      cleanupMethod,
-      sizeHandlingMode,
-    });
     setMaskPreviewDataUrl(null);
-    setPreviewPhase("reading");
-    setPreviewTaskStateByImageId((current) => ({
-      ...current,
-      [selectedImage.id]: {
-        taskId: current[selectedImage.id]?.taskId ?? "",
-        stage: "started",
-        message: "预览任务已开始",
-      },
-    }));
 
     try {
-      if (!isModelLoaded && !isModelLoading) {
-        setPreviewPhase("warming-model");
-        await waitForUiCommit();
-        await ensureModelReady("preview");
-      }
-
-      await waitForUiCommit();
-      const started = await invoke<PreviewTaskStarted>("start_preview_task", {
-        request: {
-          path: selectedImage.path,
-          region,
-          baseWidth: selectedImage.width,
-          baseHeight: selectedImage.height,
-          sizeHandlingMode,
-          cleanupMethod,
-          blurSigma,
-          fillColor,
-        } satisfies PreviewRequest,
-      });
-      previewTaskContextByTaskIdRef.current[started.taskId] = {
-        imageId: selectedImage.id,
-        sourcePath: selectedImage.path,
-        signature: currentPreviewSignature,
-      };
+      await startPreviewForImage(selectedImage, trigger);
+    } catch (error) {
+      logUi("preview:error", { trigger, error: String(error) });
       setPreviewTaskStateByImageId((current) => ({
         ...current,
         [selectedImage.id]: {
-          taskId: started.taskId,
-          stage: "started",
-          message: "预览任务已开始",
+          taskId: current[selectedImage.id]?.taskId ?? "",
+          stage: "error",
+          message: `预览生成失败：${String(error)}`,
         },
       }));
-      setPreviewPhase("processing");
-      logUi("preview:task-started", { trigger, taskId: started.taskId });
-    } catch (error) {
-      logUi("preview:error", { trigger, error: String(error) });
-      setPreviewPhase("idle");
       setNotification({ kind: "error", message: `预览生成失败：${String(error)}` });
     }
   }
@@ -1418,7 +1593,7 @@ export default function App() {
       sizeHandlingMode,
     });
     setMaskPreviewImageId(selectedImage.id);
-    setPreviewPhase("processing");
+    setMaskPreviewMessage("正在生成 Mask...");
 
     try {
       await waitForUiCommit();
@@ -1458,13 +1633,72 @@ export default function App() {
       logUi("preview-mask:error", { error: String(error) });
       setNotification({ kind: "error", message: `Mask 预览生成失败：${String(error)}` });
     } finally {
-      setPreviewPhase("idle");
       setMaskPreviewImageId(null);
+      setMaskPreviewMessage("");
     }
   }
 
   async function runBatch() {
     await runBatchForPaths(importedImages.map((item) => item.path));
+  }
+
+  async function exportCurrentImage() {
+    if (!selectedImage) {
+      return;
+    }
+    await runBatchForPaths([selectedImage.path]);
+  }
+
+  async function runBatchPreview() {
+    const pendingImages = importedImages.filter((image) => {
+      if (hasProcessedCacheForImage(image)) {
+        return false;
+      }
+      return !isPreviewTaskActive(previewTaskStateByImageId[image.id]?.stage);
+    });
+
+    if (pendingImages.length === 0) {
+      setNotification({ kind: "info", message: "当前图片都已有缓存，无需再批量生成预览。" });
+      return;
+    }
+
+    logUi("batch-preview:start", { total: pendingImages.length });
+    setBatchPreviewProgress({
+      total: pendingImages.length,
+      completed: 0,
+      currentImageName: pendingImages[0]?.name ?? "",
+    });
+
+    let completed = 0;
+    try {
+      for (const image of pendingImages) {
+        setBatchPreviewProgress({
+          total: pendingImages.length,
+          completed,
+          currentImageName: image.name,
+        });
+        await startPreviewForImage(image, "batch");
+        completed += 1;
+        setBatchPreviewProgress({
+          total: pendingImages.length,
+          completed,
+          currentImageName: image.name,
+        });
+      }
+      logUi("batch-preview:done", { total: pendingImages.length });
+      setNotification({
+        kind: "success",
+        message: `批量预览完成，已为 ${pendingImages.length} 张图片生成缓存。`,
+      });
+    } catch (error) {
+      logUi("batch-preview:error", { error: String(error), completed });
+      setNotification({
+        kind: "error",
+        message: `批量预览中断：${String(error)}`,
+      });
+    } finally {
+      setBatchPreviewProgress(null);
+    }
   }
 
   async function runBatchForPaths(paths: string[]) {
@@ -1481,7 +1715,7 @@ export default function App() {
       pathCount: paths.length,
       cleanupMethod,
       sizeHandlingMode,
-      reusePreviewCount: Object.values(previewCacheMap).length,
+      reusePreviewCount: Object.values(processedCacheMap).length,
     });
     setBatchRunning(true);
     setBatchStartedAt(Date.now());
@@ -1493,6 +1727,19 @@ export default function App() {
       currentFile: paths[0],
       stage: "started",
     });
+    activeBatchSignatureByPathRef.current = Object.fromEntries(
+      paths.map((path) => [
+        path,
+        buildPreviewSignature({
+          sourcePath: path,
+          region,
+          cleanupMethod,
+          sizeHandlingMode,
+          blurSigma,
+          fillColor,
+        }),
+      ]),
+    );
 
     try {
       if (!isModelLoaded && !isModelLoading) {
@@ -1500,7 +1747,7 @@ export default function App() {
         await ensureModelReady("batch");
       }
       await waitForUiCommit();
-      const result = await invoke<BatchResult>("run_batch_cleanup", {
+      const started = await invoke<BatchTaskStarted>("start_batch_task", {
         request: {
           paths,
           region,
@@ -1511,41 +1758,21 @@ export default function App() {
           blurSigma,
           fillColor,
           outputDir: outputDir || null,
-          previewCaches: Object.values(previewCacheMap).map((cache) => ({
+          previewCaches: Object.values(processedCacheMap).map((cache) => ({
             sourcePath: cache.sourcePath,
-            cachedProcessedPath: cache.preview.cachedProcessedPath,
+            cachedProcessedPath: cache.cachedProcessedPath,
             signature: cache.signature,
           })),
         } satisfies BatchRequest,
       });
-
-      setLastBatchResult(result);
-      addHistory({
-        id: crypto.randomUUID(),
-        createdAt: new Date().toISOString(),
-        importedCount: importedImages.length,
-        successCount: result.successCount,
-        failedCount: result.failedCount,
-        outputDir: result.outputDir,
-        cleanupMethod,
-      });
-      setNotification({
-        kind: "success",
-        message: `批处理完成：共 ${result.processedCount} 张，${result.successCount} 成功，${result.failedCount} 失败。`,
-      });
-      logUi("batch:done", {
-        processedCount: result.processedCount,
-        successCount: result.successCount,
-        failedCount: result.failedCount,
-        outputDir: result.outputDir,
-      });
+      activeBatchTaskIdRef.current = started.taskId;
+      logUi("batch:task-started", { taskId: started.taskId, pathCount: paths.length });
     } catch (error) {
       setBatchProgress(null);
       setBatchStartedAt(null);
+      setBatchRunning(false);
       logUi("batch:error", { error: String(error) });
       setNotification({ kind: "error", message: `批处理失败：${String(error)}` });
-    } finally {
-      setBatchRunning(false);
     }
   }
 
@@ -1935,7 +2162,7 @@ export default function App() {
                         : undefined
                   }
                   loading={isSelectedImageBusy}
-                  loadingMessage={previewPhaseLabel}
+                  loadingMessage={previewLoadingMessage}
                 />
               </section>
 
@@ -1944,7 +2171,7 @@ export default function App() {
                   <button
                     className="rounded-2xl bg-primary px-4 py-3 text-sm font-medium text-white disabled:opacity-60"
                     type="button"
-                    disabled={!selectedImage || isSelectedImageBusy}
+                    disabled={!selectedImage || isSelectedImageBusy || isBatchPreviewRunning}
                     onClick={() => void refreshPreview("manual")}
                   >
                     {isSelectedPreviewTaskRunning ? "生成中..." : "刷新样张预览"}
@@ -1952,10 +2179,26 @@ export default function App() {
                   <button
                     className="rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium disabled:opacity-60"
                     type="button"
-                    disabled={importedImages.length === 0 || isBatchRunning}
+                    disabled={importedImages.length === 0 || isBatchRunning || isBatchPreviewRunning}
+                    onClick={() => void runBatchPreview()}
+                  >
+                    {isBatchPreviewRunning ? "批量预览中..." : "批量生成预览"}
+                  </button>
+                  <button
+                    className="rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium disabled:opacity-60"
+                    type="button"
+                    disabled={importedImages.length === 0 || isBatchRunning || isBatchPreviewRunning}
                     onClick={runBatch}
                   >
                     {isBatchRunning ? "批处理中..." : "开始批量导出"}
+                  </button>
+                  <button
+                    className="rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium disabled:opacity-60"
+                    type="button"
+                    disabled={!selectedImage || isBatchRunning || isBatchPreviewRunning}
+                    onClick={() => void exportCurrentImage()}
+                  >
+                    {isBatchRunning ? "导出中..." : "导出当前图片"}
                   </button>
                   <button
                     className="rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium disabled:opacity-60"
@@ -1992,8 +2235,13 @@ export default function App() {
                 <p className="mt-3 text-sm text-muted">
                   导入后不会自动跑预览。先调整区域和参数，再手动点击“刷新样张预览”，这样可以减少等待和误触发。
                 </p>
-                {isSelectedImageBusy ? (
-                  <p className="mt-2 text-sm text-primary-strong">{previewPhaseLabel}</p>
+                {isSelectedImageBusy && previewLoadingMessage ? (
+                  <p className="mt-2 text-sm text-primary-strong">{previewLoadingMessage}</p>
+                ) : null}
+                {isBatchPreviewRunning && batchPreviewProgress ? (
+                  <p className="mt-2 text-sm text-primary-strong">
+                    批量预览进行中：{batchPreviewProgress.completed}/{batchPreviewProgress.total}，当前 {batchPreviewProgress.currentImageName}
+                  </p>
                 ) : null}
 
                 {lastBatchResult ? (

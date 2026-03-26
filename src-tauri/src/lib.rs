@@ -114,6 +114,22 @@ struct PreviewTaskEvent {
   error: Option<String>,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchTaskStarted {
+  task_id: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchTaskEvent {
+  task_id: String,
+  stage: String,
+  message: String,
+  result: Option<BatchResult>,
+  error: Option<String>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct MaskPreviewResult {
@@ -127,16 +143,17 @@ struct PreviewCache {
   cached_processed_path: String,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BatchEntry {
   source_path: String,
   output_path: String,
+  cached_processed_path: Option<String>,
   success: bool,
   error: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BatchResult {
   output_dir: String,
@@ -2015,7 +2032,7 @@ fn run_batch_cleanup(app: tauri::AppHandle, request: BatchRequest) -> Result<Bat
       path.display()
     );
 
-    let result = (|| -> Result<()> {
+    let result = (|| -> Result<Option<String>> {
       if let Some(cached_processed_path) = preview_cache_map.get(&source_path) {
         if Path::new(cached_processed_path).exists() {
           log::info!(
@@ -2026,7 +2043,7 @@ fn run_batch_cleanup(app: tauri::AppHandle, request: BatchRequest) -> Result<Bat
             cached_processed_path
           );
           fs::copy(cached_processed_path, &output_path)?;
-          return Ok(());
+          return Ok(Some(cached_processed_path.clone()));
         }
       }
       let image = load_image(&path)?;
@@ -2043,12 +2060,20 @@ fn run_batch_cleanup(app: tauri::AppHandle, request: BatchRequest) -> Result<Bat
         &request.fill_color,
         false,  // fast_mode: 批量处理时使用ONNX高质量模式
       )?;
+      let cached_processed_path = preview_cache_path(&source_path)?;
+      processed.save(&cached_processed_path)?;
       processed.save(&output_path)?;
-      Ok(())
+      log::info!(
+        "批处理写入处理缓存第 {}/{} 张: {}",
+        index + 1,
+        total,
+        cached_processed_path.display()
+      );
+      Ok(Some(cached_processed_path.to_string_lossy().to_string()))
     })();
 
     match result {
-      Ok(()) => {
+      Ok(cached_processed_path) => {
         success_count += 1;
         log::info!(
           "批处理成功第 {}/{} 张: {} ({} ms)",
@@ -2060,6 +2085,7 @@ fn run_batch_cleanup(app: tauri::AppHandle, request: BatchRequest) -> Result<Bat
         entries.push(BatchEntry {
           source_path: source_path.clone(),
           output_path: output_path.to_string_lossy().to_string(),
+          cached_processed_path,
           success: true,
           error: None,
         });
@@ -2077,6 +2103,7 @@ fn run_batch_cleanup(app: tauri::AppHandle, request: BatchRequest) -> Result<Bat
         entries.push(BatchEntry {
           source_path: source_path.clone(),
           output_path: output_path.to_string_lossy().to_string(),
+          cached_processed_path: None,
           success: false,
           error: Some(err.to_string()),
         });
@@ -2119,6 +2146,40 @@ fn run_batch_cleanup(app: tauri::AppHandle, request: BatchRequest) -> Result<Bat
   })
 }
 
+#[tauri::command]
+fn start_batch_task(app: tauri::AppHandle, request: BatchRequest) -> Result<BatchTaskStarted, String> {
+  let task_id = format!("batch-{}", SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .map_err(|err| err.to_string())?
+    .as_micros());
+  let app_handle = app.clone();
+  let task_id_for_thread = task_id.clone();
+
+  thread::spawn(move || {
+    let emit_event = |stage: &str, message: &str, result: Option<BatchResult>, error: Option<String>| {
+      let _ = app_handle.emit(
+        "batch-task",
+        BatchTaskEvent {
+          task_id: task_id_for_thread.clone(),
+          stage: stage.to_string(),
+          message: message.to_string(),
+          result,
+          error,
+        },
+      );
+    };
+
+    emit_event("started", "批处理任务已开始", None, None);
+
+    match run_batch_cleanup(app_handle.clone(), request) {
+      Ok(result) => emit_event("completed", "批处理已完成", Some(result), None),
+      Err(error) => emit_event("error", "批处理失败", None, Some(error)),
+    }
+  });
+
+  Ok(BatchTaskStarted { task_id: task_id })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -2128,6 +2189,7 @@ pub fn run() {
       preload_model,
       import_paths,
       start_preview_task,
+      start_batch_task,
       preview_cleanup,
       preview_mask,
       run_batch_cleanup
