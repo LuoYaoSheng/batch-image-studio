@@ -4,9 +4,11 @@ import { HistoryTable } from "../components/history/HistoryTable";
 export function HistoryScreen({
   history,
   onReuse,
+  onOpenOutputDir,
 }: {
   history: HistoryEntry[];
   onReuse: (entry: HistoryEntry) => void;
+  onOpenOutputDir: (entry: HistoryEntry) => void;
 }) {
   return (
     <div className="space-y-6">
@@ -16,7 +18,7 @@ export function HistoryScreen({
         <p className="mt-2 text-sm text-muted">重点是快速找到以前做过的任务并再次使用对应模板。</p>
       </section>
 
-      <HistoryTable history={history} onReuse={onReuse} />
+      <HistoryTable history={history} onReuse={onReuse} onOpenOutputDir={onOpenOutputDir} />
     </div>
   );
 }

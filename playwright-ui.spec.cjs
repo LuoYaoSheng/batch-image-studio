@@ -306,3 +306,43 @@ test("template edit action loads template into builder screen", async ({ page })
     return state.sizeHandlingMode === "relative" && state.cleanupMethod === "fill";
   });
 });
+
+test("batch open output directory action is guarded in browser preview", async ({ page }) => {
+  await page.goto("http://127.0.0.1:4174/", { waitUntil: "networkidle" });
+  await seedStore(page, {
+    navigation: { currentScreen: "batch", builderMode: "edit", pendingImportDestination: "builder" },
+    lastBatchResult: {
+      outputDir: "/tmp/output",
+      processedCount: 12,
+      successCount: 10,
+      failedCount: 2,
+      entries: [],
+    },
+  });
+
+  await page.getByRole("main").getByRole("button", { name: "打开输出目录" }).click();
+  await expect(page.getByText("浏览器预览环境不支持打开系统文件管理器，请在 Tauri 桌面环境中验证。")).toBeVisible();
+});
+
+test("history open directory action is guarded in browser preview", async ({ page }) => {
+  await page.goto("http://127.0.0.1:4174/", { waitUntil: "networkidle" });
+  await seedStore(page, {
+    navigation: { currentScreen: "history", builderMode: "edit", pendingImportDestination: "builder" },
+    history: [
+      {
+        id: "hist-1",
+        createdAt: new Date().toISOString(),
+        importedCount: 12,
+        successCount: 12,
+        failedCount: 0,
+        outputDir: "/tmp/output",
+        cleanupMethod: "blur",
+        templateId: "tpl-1",
+        templateName: "右下角小字清理",
+      },
+    ],
+  });
+
+  await page.getByRole("button", { name: "打开目录" }).click();
+  await expect(page.getByText("浏览器预览环境不支持打开系统文件管理器，请在 Tauri 桌面环境中验证。")).toBeVisible();
+});

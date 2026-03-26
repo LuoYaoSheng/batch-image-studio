@@ -977,6 +977,27 @@ export default function App() {
     await runBatchForPaths(importedImages.map((item) => item.path));
   }
 
+  async function openOutputPath(path: string | null | undefined) {
+    if (!path) {
+      setNotification({ kind: "info", message: "当前没有可打开的输出目录。" });
+      return;
+    }
+
+    if (!isTauriRuntime()) {
+      setNotification({
+        kind: "info",
+        message: "浏览器预览环境不支持打开系统文件管理器，请在 Tauri 桌面环境中验证。",
+      });
+      return;
+    }
+
+    try {
+      await invoke("open_path_in_file_manager", { path });
+    } catch (error) {
+      setNotification({ kind: "error", message: `打开目录失败：${String(error)}` });
+    }
+  }
+
   async function retryFailedOnly() {
     const failedPaths =
       lastBatchResult?.entries.filter((entry) => !entry.success).map((entry) => entry.sourcePath) ?? [];
@@ -1149,6 +1170,14 @@ export default function App() {
         <button
           className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-medium disabled:opacity-60"
           type="button"
+          disabled={!lastBatchResult?.outputDir}
+          onClick={() => void openOutputPath(lastBatchResult?.outputDir)}
+        >
+          打开输出目录
+        </button>
+        <button
+          className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-medium disabled:opacity-60"
+          type="button"
           disabled={!lastBatchResult || lastBatchResult.failedCount === 0}
           onClick={() => void retryFailedOnly()}
         >
@@ -1232,6 +1261,7 @@ export default function App() {
         result={lastBatchResult}
         onRetryFailedOnly={() => void retryFailedOnly()}
         onBackHome={() => setCurrentScreen("home")}
+        onOpenOutputDir={() => void openOutputPath(lastBatchResult?.outputDir)}
       />
     );
   } else if (currentScreen === "templates") {
@@ -1252,7 +1282,13 @@ export default function App() {
       />
     );
   } else if (currentScreen === "history") {
-    content = <HistoryScreen history={history} onReuse={(entry) => void handleReuseHistory(entry)} />;
+    content = (
+      <HistoryScreen
+        history={history}
+        onReuse={(entry) => void handleReuseHistory(entry)}
+        onOpenOutputDir={(entry) => void openOutputPath(entry.outputDir)}
+      />
+    );
   } else if (currentScreen === "settings") {
     content = (
       <SettingsScreen

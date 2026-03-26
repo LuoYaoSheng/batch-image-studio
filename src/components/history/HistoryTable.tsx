@@ -4,9 +4,11 @@ import { formatDateTime, getHistoryTemplateLabel } from "../../lib/formatting";
 export function HistoryTable({
   history,
   onReuse,
+  onOpenOutputDir,
 }: {
   history: HistoryEntry[];
   onReuse: (entry: HistoryEntry) => void;
+  onOpenOutputDir: (entry: HistoryEntry) => void;
 }) {
   if (history.length === 0) {
     return (
@@ -40,13 +42,22 @@ export function HistoryTable({
               </td>
               <td className="max-w-[260px] truncate px-5 py-4 text-sm text-muted">{entry.outputDir}</td>
               <td className="px-5 py-4 text-right">
-                <button
-                  className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white"
-                  type="button"
-                  onClick={() => onReuse(entry)}
-                >
-                  复用
-                </button>
+                <div className="flex justify-end gap-2">
+                  <button
+                    className="rounded-xl border border-line bg-surface px-4 py-2 text-sm font-medium"
+                    type="button"
+                    onClick={() => onOpenOutputDir(entry)}
+                  >
+                    打开目录
+                  </button>
+                  <button
+                    className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white"
+                    type="button"
+                    onClick={() => onReuse(entry)}
+                  >
+                    复用
+                  </button>
+                </div>
               </td>
             </tr>
           ))}

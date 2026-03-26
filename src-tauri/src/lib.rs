@@ -14,6 +14,7 @@ use std::{
   collections::HashSet,
   fs,
   path::{Path, PathBuf},
+  process::Command,
   thread,
   time::{SystemTime, UNIX_EPOCH},
 };
@@ -246,6 +247,44 @@ fn bootstrap_state(app: tauri::AppHandle) -> BootstrapState {
       "template-preset-local",
     ],
   }
+}
+
+#[tauri::command]
+fn open_path_in_file_manager(path: String) -> Result<(), String> {
+  let target = PathBuf::from(&path);
+  if !target.exists() {
+    return Err(format!("路径不存在: {}", path));
+  }
+
+  #[cfg(target_os = "macos")]
+  {
+    Command::new("open")
+      .arg(&target)
+      .status()
+      .map_err(|err| err.to_string())?;
+    return Ok(());
+  }
+
+  #[cfg(target_os = "windows")]
+  {
+    Command::new("explorer")
+      .arg(&target)
+      .status()
+      .map_err(|err| err.to_string())?;
+    return Ok(());
+  }
+
+  #[cfg(target_os = "linux")]
+  {
+    Command::new("xdg-open")
+      .arg(&target)
+      .status()
+      .map_err(|err| err.to_string())?;
+    return Ok(());
+  }
+
+  #[allow(unreachable_code)]
+  Err("当前平台暂不支持打开系统文件管理器".to_string())
 }
 
 fn supported_image(path: &Path) -> bool {
@@ -2185,6 +2224,7 @@ pub fn run() {
   tauri::Builder::default()
     .invoke_handler(tauri::generate_handler![
       bootstrap_state,
+      open_path_in_file_manager,
       runtime_status,
       preload_model,
       import_paths,

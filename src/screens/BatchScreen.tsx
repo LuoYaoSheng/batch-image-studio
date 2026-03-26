@@ -8,6 +8,7 @@ export function BatchScreen({
   result,
   onRetryFailedOnly,
   onBackHome,
+  onOpenOutputDir,
 }: {
   importedImages: ImportedImage[];
   progress: BatchProgressEvent | null;
@@ -15,6 +16,7 @@ export function BatchScreen({
   result: BatchResult | null;
   onRetryFailedOnly: () => void;
   onBackHome: () => void;
+  onOpenOutputDir: () => void;
 }) {
   const percent = progress && progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
   const elapsed = startedAt ? Date.now() - startedAt : 0;
@@ -124,6 +126,14 @@ export function BatchScreen({
           <div className="rounded-[28px] border border-line bg-white p-6 shadow-sm">
             <p className="text-sm font-semibold text-ink">批量操作</p>
             <div className="mt-5 space-y-3">
+              <button
+                className="w-full rounded-2xl border border-line bg-surface px-4 py-3 text-sm font-medium disabled:opacity-60"
+                type="button"
+                disabled={!result?.outputDir}
+                onClick={onOpenOutputDir}
+              >
+                打开输出目录
+              </button>
               <button
                 className="w-full rounded-2xl border border-line bg-surface px-4 py-3 text-sm font-medium disabled:opacity-60"
                 type="button"
