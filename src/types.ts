@@ -1,5 +1,15 @@
 export type CleanupMethod = "blur" | "fill" | "crop";
 export type SizeHandlingMode = "relative" | "absolute" | "bottomRight";
+export type AppScreen =
+  | "home"
+  | "builder"
+  | "preview"
+  | "batch"
+  | "templates"
+  | "history"
+  | "settings";
+export type ImportDestination = "builder" | "preview";
+export type OutputFormat = "png" | "jpg" | "webp";
 
 export type Region = {
   x: number;
@@ -106,6 +116,10 @@ export type Template = {
   sizeHandlingMode: SizeHandlingMode;
   blurSigma: number;
   fillColor: string;
+  createdAt?: string;
+  updatedAt?: string;
+  lastUsedAt?: string;
+  previewImage?: string;
 };
 
 export type HistoryEntry = {
@@ -116,4 +130,13 @@ export type HistoryEntry = {
   failedCount: number;
   outputDir: string;
   cleanupMethod: CleanupMethod;
+  templateId?: string;
+  templateName?: string;
+};
+
+export type AppSettings = {
+  defaultOutputDir: string;
+  defaultFormat: OutputFormat;
+  defaultCleanupMethod: CleanupMethod;
+  defaultSizeHandlingMode: SizeHandlingMode;
 };

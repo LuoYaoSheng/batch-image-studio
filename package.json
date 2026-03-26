@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "test:ui": "playwright test playwright-ui.spec.cjs --reporter=list",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
   },
@@ -20,11 +21,13 @@
   "license": "MIT",
   "type": "module",
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@tauri-apps/cli": "^2.10.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
     "autoprefixer": "^10.4.27",
+    "playwright": "^1.58.2",
     "postcss": "^8.5.8",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.9.3",
