@@ -61,14 +61,6 @@ export function TemplateBuilderScreen({
   onSetCurrentTemplateName: (value: string) => void;
   onResetRegion: () => void;
 }) {
-  if (importedImages.length === 0) {
-    return (
-      <div className="rounded-[28px] border border-dashed border-line bg-white px-8 py-14 text-center text-sm text-muted">
-        先从首页导入图片后，再进入模板构建流程。
-      </div>
-    );
-  }
-
   return (
     <div className="grid h-full min-h-[720px] grid-cols-[280px_minmax(0,1fr)_360px] gap-5">
       <section className="rounded-[28px] border border-line bg-white p-5 shadow-sm">
@@ -98,14 +90,20 @@ export function TemplateBuilderScreen({
             <p className="text-sm font-semibold text-ink">样图列表</p>
             <p className="text-xs text-muted">{importedImages.length} 张</p>
           </div>
-          <div className="max-h-[calc(100vh-360px)] overflow-y-auto pr-1">
-            <ImageSampleList
-              items={importedImages}
-              selectedImageId={selectedImageId}
-              onSelect={onSelectImage}
-              previewTaskStateByImageId={previewTaskStateByImageId}
-            />
-          </div>
+          {importedImages.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-line bg-surface px-4 py-8 text-sm text-muted">
+              当前正在编辑模板配置。导入一组样图后，可以继续在画布上调整区域并生成预览。
+            </div>
+          ) : (
+            <div className="max-h-[calc(100vh-360px)] overflow-y-auto pr-1">
+              <ImageSampleList
+                items={importedImages}
+                selectedImageId={selectedImageId}
+                onSelect={onSelectImage}
+                previewTaskStateByImageId={previewTaskStateByImageId}
+              />
+            </div>
+          )}
         </div>
       </section>
 

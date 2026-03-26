@@ -235,3 +235,74 @@ test("settings changes persist after reload", async ({ page }) => {
   await expect(page.locator('select').nth(2)).toHaveValue("jpg");
   await expect(page.locator('input').nth(0)).toHaveValue("/tmp/next-output");
 });
+
+test("builder save template persists into template center after reload", async ({ page }) => {
+  const dataUrl =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==";
+
+  await page.goto("http://127.0.0.1:4174/", { waitUntil: "networkidle" });
+  await seedStore(page, {
+    navigation: { currentScreen: "builder", builderMode: "new", pendingImportDestination: "builder" },
+    currentTemplateName: "新保存模板",
+    importedImages: [
+      {
+        id: "img-1",
+        path: "/tmp/a.png",
+        name: "IMG_0001.png",
+        width: 1600,
+        height: 900,
+        format: "png",
+        fileSize: 102400,
+        thumbnailDataUrl: dataUrl,
+      },
+    ],
+    selectedImageId: "img-1",
+    region: { x: 0.68, y: 0.76, width: 0.22, height: 0.12 },
+    cleanupMethod: "blur",
+    sizeHandlingMode: "bottomRight",
+    blurSigma: 10,
+    fillColor: "#f7f9fc",
+  });
+
+  await page.getByRole("button", { name: "保存模板" }).click();
+  await expect(page.getByText("模板已保存：新保存模板")).toBeVisible();
+
+  await page.getByRole("button", { name: "模板中心" }).click();
+  await expect(page.getByText("新保存模板", { exact: true })).toBeVisible();
+
+  await page.reload({ waitUntil: "networkidle" });
+  await page.getByRole("button", { name: /模板中心/ }).first().click();
+  await expect(page.getByText("新保存模板", { exact: true })).toBeVisible();
+});
+
+test("template edit action loads template into builder screen", async ({ page }) => {
+  const dataUrl =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==";
+
+  await page.goto("http://127.0.0.1:4174/", { waitUntil: "networkidle" });
+  await seedStore(page, {
+    navigation: { currentScreen: "templates", builderMode: "new", pendingImportDestination: "builder" },
+    templates: [
+      {
+        id: "tpl-1",
+        name: "右下角小字清理",
+        region: { x: 0.68, y: 0.76, width: 0.22, height: 0.12 },
+        cleanupMethod: "fill",
+        sizeHandlingMode: "relative",
+        blurSigma: 8,
+        fillColor: "#ffffff",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        previewImage: dataUrl,
+      },
+    ],
+  });
+
+  await page.getByRole("button", { name: "编辑" }).click();
+  await expect(page.getByText("模板构建", { exact: true }).first()).toBeVisible();
+  await expect(page.locator('input[placeholder="例如：右下角小字清理"]')).toHaveValue("右下角小字清理");
+  await page.waitForFunction(() => {
+    const state = window.__batchImageStudioStore.getState();
+    return state.sizeHandlingMode === "relative" && state.cleanupMethod === "fill";
+  });
+});
