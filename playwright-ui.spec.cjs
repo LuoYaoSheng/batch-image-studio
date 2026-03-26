@@ -1,15 +1,18 @@
 const { test, expect } = require("playwright/test");
 
+async function seedStore(page, state) {
+  await page.waitForFunction(() => Boolean(window.__batchImageStudioStore));
+  await page.evaluate((nextState) => {
+    window.__batchImageStudioStore.setState(nextState);
+  }, state);
+}
+
 test("screen shell renders and can switch across all pages", async ({ page }) => {
   const dataUrl =
     "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==";
 
   await page.goto("http://127.0.0.1:4174/", { waitUntil: "networkidle" });
-  await page.waitForFunction(() => Boolean(window.__batchImageStudioStore));
-
-  await page.evaluate((state) => {
-    window.__batchImageStudioStore.setState(state);
-  }, {
+  await seedStore(page, {
     navigation: { currentScreen: "builder", builderMode: "edit", pendingImportDestination: "builder" },
     currentTemplateId: "tpl-1",
     currentTemplateName: "右下角小字清理",
@@ -128,11 +131,7 @@ test("browser preview guards tauri-only actions with notifications", async ({ pa
     "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==";
 
   await page.goto("http://127.0.0.1:4174/", { waitUntil: "networkidle" });
-  await page.waitForFunction(() => Boolean(window.__batchImageStudioStore));
-
-  await page.evaluate((state) => {
-    window.__batchImageStudioStore.setState(state);
-  }, {
+  await seedStore(page, {
     navigation: { currentScreen: "preview", builderMode: "edit", pendingImportDestination: "builder" },
     currentTemplateName: "右下角小字清理",
     importedImages: [
@@ -167,4 +166,72 @@ test("browser preview guards tauri-only actions with notifications", async ({ pa
 
   await page.getByRole("button", { name: "开始批量处理" }).click();
   await expect(page.getByText("浏览器预览环境不支持真实批量执行，请在 Tauri 桌面环境中验证。")).toBeVisible();
+});
+
+test("template deletion updates template center list", async ({ page }) => {
+  const dataUrl =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==";
+
+  await page.goto("http://127.0.0.1:4174/", { waitUntil: "networkidle" });
+  await seedStore(page, {
+    navigation: { currentScreen: "templates", builderMode: "edit", pendingImportDestination: "builder" },
+    templates: [
+      {
+        id: "tpl-1",
+        name: "右下角小字清理",
+        region: { x: 0.68, y: 0.76, width: 0.22, height: 0.12 },
+        cleanupMethod: "blur",
+        sizeHandlingMode: "bottomRight",
+        blurSigma: 10,
+        fillColor: "#f7f9fc",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        previewImage: dataUrl,
+      },
+      {
+        id: "tpl-2",
+        name: "底边小字清理",
+        region: { x: 0.3, y: 0.85, width: 0.4, height: 0.08 },
+        cleanupMethod: "fill",
+        sizeHandlingMode: "relative",
+        blurSigma: 8,
+        fillColor: "#ffffff",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        previewImage: dataUrl,
+      },
+    ],
+  });
+
+  await expect(page.getByText("右下角小字清理")).toBeVisible();
+  await page.getByRole("button", { name: "删除" }).first().click();
+  await expect(page.getByText("模板已删除。")).toBeVisible();
+  await expect(page.getByText("右下角小字清理")).toHaveCount(0);
+  await expect(page.getByText("底边小字清理")).toBeVisible();
+});
+
+test("settings changes persist after reload", async ({ page }) => {
+  await page.goto("http://127.0.0.1:4174/", { waitUntil: "networkidle" });
+  await seedStore(page, {
+    navigation: { currentScreen: "settings", builderMode: "new", pendingImportDestination: "builder" },
+    appSettings: {
+      defaultOutputDir: "/tmp/output",
+      defaultFormat: "png",
+      defaultCleanupMethod: "blur",
+      defaultSizeHandlingMode: "bottomRight",
+    },
+  });
+
+  await page.locator('select').nth(0).selectOption("fill");
+  await page.locator('select').nth(1).selectOption("relative");
+  await page.locator('select').nth(2).selectOption("jpg");
+  await page.locator('input').nth(0).fill("/tmp/next-output");
+
+  await page.reload({ waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "设置" }).click();
+
+  await expect(page.locator('select').nth(0)).toHaveValue("fill");
+  await expect(page.locator('select').nth(1)).toHaveValue("relative");
+  await expect(page.locator('select').nth(2)).toHaveValue("jpg");
+  await expect(page.locator('input').nth(0)).toHaveValue("/tmp/next-output");
 });
