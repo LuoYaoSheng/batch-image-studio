@@ -1,0 +1,4 @@
+resources/models/**/*.ort filter=lfs diff=lfs merge=lfs -text
+resources/models/**/*.bin filter=lfs diff=lfs merge=lfs -text
+resources/models/**/*.onnx filter=lfs diff=lfs merge=lfs -text
+resources/models/lama-v1/model.onnx filter=lfs diff=lfs merge=lfs -text
