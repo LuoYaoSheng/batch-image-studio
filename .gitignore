@@ -17,5 +17,5 @@ samples/
 .claude/
 _bmad/
 _bmad-output/
-docs/plans/
+docs/
 *.md.bak
