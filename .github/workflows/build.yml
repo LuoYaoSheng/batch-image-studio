@@ -41,6 +41,8 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.args }}
 
       - name: Install dependencies (Ubuntu)
         if: matrix.platform == 'ubuntu-latest'
@@ -66,12 +68,3 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: ${{ matrix.args }}
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: batch-image-studio-${{ matrix.platform }}
-          path: |
-            target/*/bundle/bundle/*
-            target/aarch64-apple-darwin/*/bundle/bundle/*
-            target/x86_64-apple-darwin/*/bundle/bundle/*
