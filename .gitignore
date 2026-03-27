@@ -11,3 +11,10 @@ resources/models/**/*.bin
 # Local-only prototype references
 stitch/
 samples/
+
+# AI coding artifacts
+.claude/
+_bmad/
+_bmad-output/
+docs/plans/
+*.md.bak
