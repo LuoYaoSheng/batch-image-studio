@@ -8,7 +8,7 @@ from PIL import Image
 import onnxruntime as ort
 
 def main():
-    model_path = "resources/models/doubao-lama-v1/model.onnx"
+    model_path = "resources/models/lama-v1/model.onnx"
 
     print("加载模型...")
     session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])

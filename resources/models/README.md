@@ -6,7 +6,7 @@ Target layout:
 
 ```text
 resources/models/
-  doubao-lama-v1/
+  lama-v1/
     manifest.json
     model.onnx
 ```

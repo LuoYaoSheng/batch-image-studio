@@ -1,6 +1,6 @@
 {
-  "profileId": "doubao-watermark",
-  "displayName": "Doubao LaMa",
+  "profileId": "lama-v1",
+  "displayName": "LaMa v1",
   "modelFile": "model.onnx",
   "inputWidth": 512,
   "inputHeight": 512
