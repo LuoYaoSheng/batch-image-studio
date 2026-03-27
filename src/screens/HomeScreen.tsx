@@ -39,6 +39,7 @@ export function HomeScreen({
     })
     .slice(0, 3);
   const recentHistory = history.slice(0, 5);
+  const isFirstTimeUser = templates.length === 0 && history.length === 0;
 
   return (
     <div className="mx-auto max-w-7xl space-y-8">
@@ -84,6 +85,32 @@ export function HomeScreen({
             </div>
           </div>
         </div>
+
+        {/* 首次使用引导 */}
+        {isFirstTimeUser && (
+          <div className="rounded-[28px] border border-primary/30 bg-gradient-to-br from-primary/5 to-primary/10 p-6 shadow-sm">
+            <p className="text-sm uppercase tracking-[0.22em] text-primary-strong">快速开始</p>
+            <h3 className="mt-3 text-xl font-semibold text-ink">只需 4 步完成第一次处理</h3>
+            <div className="mt-5 space-y-3">
+              {[
+                { step: "1", title: "导入图片", desc: "选择需要处理的一组图片" },
+                { step: "2", title: "框选区域", desc: "在样图上拖动选择要处理的区域" },
+                { step: "3", title: "预览效果", desc: "确认 AI 处理效果符合预期" },
+                { step: "4", title: "保存模板", desc: "保存模板后可复用于同类图片" },
+              ].map((item) => (
+                <div key={item.step} className="flex items-start gap-4 rounded-2xl bg-white/80 px-4 py-3">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-white">
+                    {item.step}
+                  </span>
+                  <div>
+                    <p className="text-sm font-medium text-ink">{item.title}</p>
+                    <p className="mt-0.5 text-xs text-muted">{item.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="rounded-[28px] border border-line bg-white p-6 shadow-sm">
           <p className="text-sm uppercase tracking-[0.22em] text-primary-strong">Template First</p>

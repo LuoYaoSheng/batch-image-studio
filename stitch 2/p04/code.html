@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "primary": "#2e59b9",
+              "on-primary": "#f8f7ff",
+              "outline-variant": "#acb3b8",
+              "surface-container-low": "#f2f4f6",
+              "error-dim": "#4e0309",
+              "tertiary": "#615b77",
+              "primary-dim": "#1d4dac",
+              "primary-container": "#dae2ff",
+              "on-secondary-container": "#515155",
+              "on-surface-variant": "#596065",
+              "on-error-container": "#752121",
+              "surface-container-highest": "#dde3e9",
+              "inverse-surface": "#0c0e10",
+              "on-secondary-fixed-variant": "#5b5b5f",
+              "tertiary-fixed": "#e3dbfd",
+              "on-surface": "#2d3338",
+              "secondary-fixed": "#e4e2e6",
+              "on-tertiary-container": "#524c68",
+              "inverse-on-surface": "#9c9d9f",
+              "on-tertiary-fixed": "#3f3a54",
+              "on-background": "#2d3338",
+              "tertiary-dim": "#554f6b",
+              "primary-fixed-dim": "#c6d3ff",
+              "on-primary-container": "#1c4cab",
+              "on-secondary": "#faf8fc",
+              "outline": "#757c81",
+              "error-container": "#fe8983",
+              "secondary-dim": "#535356",
+              "surface-tint": "#2e59b9",
+              "on-tertiary": "#fcf7ff",
+              "tertiary-fixed-dim": "#d5cdee",
+              "inverse-primary": "#749afe",
+              "secondary-fixed-dim": "#d5d4d8",
+              "surface-container": "#ebeef2",
+              "on-primary-fixed-variant": "#2a56b5",
+              "surface": "#f9f9fb",
+              "primary-fixed": "#dae2ff",
+              "on-tertiary-fixed-variant": "#5b5672",
+              "secondary": "#5f5f62",
+              "on-error": "#fff7f6",
+              "on-secondary-fixed": "#3f3f43",
+              "surface-bright": "#f9f9fb",
+              "error": "#9f403d",
+              "on-primary-fixed": "#003992",
+              "secondary-container": "#e4e2e6",
+              "surface-container-high": "#e4e9ee",
+              "surface-container-lowest": "#ffffff",
+              "background": "#f9f9fb",
+              "tertiary-container": "#e3dbfd",
+              "surface-dim": "#d3dbe2",
+              "surface-variant": "#dde3e9"
+            },
+            fontFamily: {
+              "headline": ["Inter"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        vertical-align: middle;
+      }
+      ::-webkit-scrollbar { width: 4px; height: 4px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: #dde3e9; border-radius: 10px; }
+      .tonal-layering { background-color: #ebeef2; }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-body overflow-hidden">
+<!-- TopNavBar (Shared Component) -->
+<header class="fixed top-0 w-full z-50 h-12 bg-[#f9f9fb]/80 dark:bg-[#1a1c1e]/80 backdrop-blur-xl border-b border-[#596065]/10 shadow-sm shadow-[#2d3338]/5 flex items-center justify-between px-6">
+<div class="flex items-center gap-4">
+<span class="text-lg font-bold tracking-tight text-[#2d3338] dark:text-[#e2e2e6]">图片批量处理大师</span>
+</div>
+<div class="flex items-center gap-2">
+<button class="p-2 text-[#596065] dark:text-[#909194] hover:bg-[#ebeef2] dark:hover:bg-[#2d3338] transition-colors duration-200 active:scale-95 transition-transform">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+</button>
+<button class="p-2 text-[#596065] dark:text-[#909194] hover:bg-[#ebeef2] dark:hover:bg-[#2d3338] transition-colors duration-200 active:scale-95 transition-transform">
+<span class="material-symbols-outlined" data-icon="remove">remove</span>
+</button>
+<button class="p-2 text-[#596065] dark:text-[#909194] hover:bg-[#ebeef2] dark:hover:bg-[#2d3338] transition-colors duration-200 active:scale-95 transition-transform">
+<span class="material-symbols-outlined" data-icon="fullscreen">fullscreen</span>
+</button>
+<button class="p-2 text-[#596065] dark:text-[#909194] hover:bg-[#ebeef2] dark:hover:bg-[#2d3338] transition-colors duration-200 active:scale-95 transition-transform">
+<span class="material-symbols-outlined" data-icon="close">close</span>
+</button>
+</div>
+</header>
+<!-- SideNavBar (Shared Component) -->
+<aside class="fixed left-0 top-12 h-[calc(100vh-48px)] w-64 bg-[#ebeef2] dark:bg-[#1a1c1e] flex flex-col py-6 px-4 gap-2 tonal-layering">
+<div class="mb-4 px-2">
+<h2 class="text-xs font-bold uppercase tracking-widest text-on-surface-variant opacity-70">工作区</h2>
+<p class="text-xs text-on-surface-variant">静默生产力</p>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-4 py-2 text-[#596065] dark:text-[#909194] hover:bg-[#ffffff]/50 dark:hover:bg-[#2d3338]/50 transition-all duration-300 ease-in-out hover:translate-x-1 rounded-sm" href="#">
+<span class="material-symbols-outlined" data-icon="home">home</span>
+<span class="text-sm font-medium tracking-wide">首页</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-[#596065] dark:text-[#909194] hover:bg-[#ffffff]/50 dark:hover:bg-[#2d3338]/50 transition-all duration-300 ease-in-out hover:translate-x-1 rounded-sm" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard_customize">dashboard_customize</span>
+<span class="text-sm font-medium tracking-wide">模板中心</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 bg-[#ffffff] dark:bg-[#2d3338] text-[#2e59b9] dark:text-[#adc6ff] border-l-4 border-[#2e59b9] shadow-sm transition-all duration-300 ease-in-out hover:translate-x-1 rounded-sm" href="#">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+<span class="text-sm font-medium tracking-wide">历史记录</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-[#596065] dark:text-[#909194] hover:bg-[#ffffff]/50 dark:hover:bg-[#2d3338]/50 transition-all duration-300 ease-in-out hover:translate-x-1 rounded-sm" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="text-sm font-medium tracking-wide">设置</span>
+</a>
+</nav>
+<div class="pt-4 border-t border-outline-variant/10">
+<a class="flex items-center gap-3 px-4 py-2 text-[#596065] dark:text-[#909194] hover:bg-[#ffffff]/50 dark:hover:bg-[#2d3338]/50 transition-all duration-300 ease-in-out hover:translate-x-1 rounded-sm" href="#">
+<span class="material-symbols-outlined" data-icon="contact_support">contact_support</span>
+<span class="text-sm font-medium tracking-wide">帮助反馈</span>
+</a>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="ml-64 mt-12 h-[calc(100vh-48px)] p-8 overflow-y-auto">
+<div class="max-w-6xl mx-auto space-y-8">
+<!-- Progress Header Section -->
+<section class="bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-outline-variant/5">
+<div class="flex justify-between items-end mb-6">
+<div>
+<span class="text-xs font-bold text-primary tracking-widest uppercase mb-1 block">正在执行任务</span>
+<h1 class="text-2xl font-bold text-on-surface tracking-tight">2023_夏季产品画册_高清重绘</h1>
+</div>
+<div class="text-right">
+<span class="text-4xl font-bold text-primary tabular-nums">72%</span>
+<span class="text-on-surface-variant text-sm block">预计剩余 4 分钟</span>
+</div>
+</div>
+<!-- Global Progress Bar -->
+<div class="relative h-3 w-full bg-surface-container-highest rounded-full overflow-hidden mb-8">
+<div class="absolute top-0 left-0 h-full w-[72%] bg-gradient-to-r from-primary to-primary-dim transition-all duration-500">
+<div class="absolute inset-0 bg-[linear-gradient(45deg,rgba(255,255,255,0.15)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.15)_50%,rgba(255,255,255,0.15)_75%,transparent_75%,transparent)] bg-[length:20px_20px]"></div>
+</div>
+</div>
+<!-- Stats Bento Grid -->
+<div class="grid grid-cols-4 gap-4">
+<div class="bg-surface-container-low p-4 rounded-lg">
+<p class="text-xs text-on-surface-variant mb-1">总数量</p>
+<p class="text-xl font-bold">124</p>
+</div>
+<div class="bg-surface-container-low p-4 rounded-lg">
+<p class="text-xs text-on-surface-variant mb-1 text-primary">成功数</p>
+<p class="text-xl font-bold text-primary">89</p>
+</div>
+<div class="bg-surface-container-low p-4 rounded-lg">
+<p class="text-xs text-on-surface-variant mb-1 text-error">失败数</p>
+<p class="text-xl font-bold text-error">2</p>
+</div>
+<div class="bg-surface-container-low p-4 rounded-lg border-l-2 border-primary">
+<p class="text-xs text-on-surface-variant mb-1">处理中</p>
+<p class="text-xl font-bold">33</p>
+</div>
+</div>
+</section>
+<!-- Grid Layout for Queue and Logs -->
+<div class="grid grid-cols-12 gap-6 items-start">
+<!-- Left: Queue Sidebar -->
+<div class="col-span-4 bg-surface-container p-4 rounded-xl h-[500px] flex flex-col">
+<h3 class="text-sm font-bold mb-4 px-2 flex justify-between">
+<span>处理队列</span>
+<span class="text-on-surface-variant font-normal">实时更新</span>
+</h3>
+<div class="flex-1 overflow-y-auto space-y-2 pr-2">
+<!-- Active Item -->
+<div class="bg-surface-container-lowest p-3 rounded-lg border-l-4 border-primary shadow-sm">
+<div class="flex justify-between items-center mb-1">
+<span class="text-xs font-bold truncate pr-2">IMG_8842_RAW.jpg</span>
+<span class="text-[10px] bg-primary-container text-on-primary-container px-2 py-0.5 rounded-full">处理中</span>
+</div>
+<div class="w-full bg-surface-container-highest h-1 rounded-full overflow-hidden">
+<div class="bg-primary h-full w-1/2"></div>
+</div>
+</div>
+<!-- Success Items -->
+<div class="bg-surface-container-lowest/50 p-3 rounded-lg flex justify-between items-center group">
+<span class="text-xs text-on-surface-variant truncate">IMG_8841_RAW.jpg</span>
+<span class="material-symbols-outlined text-primary text-lg" data-icon="check_circle">check_circle</span>
+</div>
+<div class="bg-surface-container-lowest/50 p-3 rounded-lg flex justify-between items-center">
+<span class="text-xs text-on-surface-variant truncate">IMG_8840_RAW.jpg</span>
+<span class="material-symbols-outlined text-primary text-lg" data-icon="check_circle">check_circle</span>
+</div>
+<!-- Error Item -->
+<div class="bg-error-container/10 p-3 rounded-lg flex justify-between items-center border border-error/20">
+<span class="text-xs text-error truncate">IMG_8839_RAW.jpg</span>
+<span class="material-symbols-outlined text-error text-lg" data-icon="error">error</span>
+</div>
+<!-- Pending Items -->
+<div class="p-3 rounded-lg flex justify-between items-center opacity-40">
+<span class="text-xs text-on-surface-variant truncate">IMG_8843_RAW.jpg</span>
+<span class="material-symbols-outlined text-on-surface-variant text-lg" data-icon="schedule">schedule</span>
+</div>
+<div class="p-3 rounded-lg flex justify-between items-center opacity-40">
+<span class="text-xs text-on-surface-variant truncate">IMG_8844_RAW.jpg</span>
+<span class="material-symbols-outlined text-on-surface-variant text-lg" data-icon="schedule">schedule</span>
+</div>
+</div>
+</div>
+<!-- Right: Logs and Actions -->
+<div class="col-span-8 space-y-6">
+<!-- Logs Section -->
+<div class="bg-surface-container-lowest rounded-xl border border-outline-variant/10 overflow-hidden flex flex-col h-[380px]">
+<div class="bg-surface-container-high px-4 py-2 flex justify-between items-center border-b border-outline-variant/10">
+<span class="text-xs font-medium text-on-surface-variant">详细日志 (Verbose Output)</span>
+<div class="flex gap-2">
+<div class="w-2 h-2 rounded-full bg-red-400"></div>
+<div class="w-2 h-2 rounded-full bg-amber-400"></div>
+<div class="w-2 h-2 rounded-full bg-emerald-400"></div>
+</div>
+</div>
+<div class="p-4 font-mono text-[11px] leading-relaxed flex-1 overflow-y-auto bg-surface-container-lowest text-on-surface-variant">
+<div class="mb-1 text-primary">[14:22:01] 正在初始化超分辨率模型 SRGAN-v2...</div>
+<div class="mb-1 text-primary">[14:22:03] GPU 内存分配成功: 4.2GB 已使用 / 8.0GB 可用</div>
+<div class="mb-1">[14:22:05] 开始处理 IMG_8841_RAW.jpg (4032x3024)</div>
+<div class="mb-1 text-on-surface">[14:22:08] 降噪滤镜应用完成 (强度: 0.65)</div>
+<div class="mb-1 text-on-surface">[14:22:12] 锐化算法执行完成 (半径: 1.2px)</div>
+<div class="mb-1 text-primary">[14:22:15] 成功保存至: D:\Exports\Summer_Catalog\IMG_8841_HQ.jpg</div>
+<div class="mb-1 text-error">[14:22:18] 警告: IMG_8839_RAW.jpg 损坏，无法读取元数据。跳过该文件。</div>
+<div class="mb-1 text-primary">[14:22:20] 正在处理下一个文件: IMG_8842_RAW.jpg...</div>
+<div class="mb-1 animate-pulse">_</div>
+</div>
+</div>
+<!-- Output Directory & Controls -->
+<div class="bg-surface-container-lowest p-6 rounded-xl shadow-sm flex flex-col gap-6">
+<div class="flex items-center gap-3 bg-surface-container-low px-4 py-3 rounded-lg">
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="folder_open">folder_open</span>
+<div class="flex-1">
+<p class="text-[10px] text-on-surface-variant uppercase font-bold tracking-wider">输出目录</p>
+<p class="text-xs font-medium truncate">D:\Exports\Summer_Catalog_Processed_2023</p>
+</div>
+<button class="text-primary text-xs font-bold hover:underline">更改</button>
+</div>
+<div class="flex justify-between items-center">
+<div class="flex gap-3">
+<button class="flex items-center gap-2 bg-surface-container-high text-on-surface px-6 py-2.5 rounded-sm text-sm font-bold hover:bg-surface-container-highest transition-colors active:scale-95 transition-transform">
+<span class="material-symbols-outlined" data-icon="pause">pause</span>
+                                    暂停任务
+                                </button>
+<button class="flex items-center gap-2 bg-surface-container-high text-error px-6 py-2.5 rounded-sm text-sm font-bold hover:bg-error-container/20 transition-colors active:scale-95 transition-transform">
+<span class="material-symbols-outlined" data-icon="cancel">cancel</span>
+                                    取消
+                                </button>
+</div>
+<div class="flex gap-3">
+<button class="flex items-center gap-2 bg-surface-container-high text-on-surface px-6 py-2.5 rounded-sm text-sm font-bold hover:bg-surface-container-highest transition-colors">
+<span class="material-symbols-outlined" data-icon="refresh">refresh</span>
+                                    仅重试失败项
+                                </button>
+<button class="flex items-center gap-2 bg-primary text-on-primary px-8 py-2.5 rounded-sm text-sm font-bold shadow-md shadow-primary/20 hover:bg-primary-dim transition-colors active:scale-95 transition-transform">
+<span class="material-symbols-outlined" data-icon="folder_shared">folder_shared</span>
+                                    打开输出目录
+                                </button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Success Modal (Hidden by default, shown here for design purposes using absolute overlay) -->
+<!-- This overlay would typically be toggled via state. Here we show it centered for the prompt requirement. -->
+<div class="fixed inset-0 z-[100] flex items-center justify-center pointer-events-none">
+<div class="bg-surface-container-lowest p-8 rounded-2xl shadow-2xl border border-primary/10 max-w-md w-full pointer-events-auto transform translate-y-12 opacity-0 invisible" style="transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);">
+<!-- Hidden by default, shown at task completion -->
+<div class="text-center">
+<div class="w-16 h-16 bg-primary/10 text-primary rounded-full flex items-center justify-center mx-auto mb-4">
+<span class="material-symbols-outlined text-4xl" data-icon="task_alt" style="font-variation-settings: 'FILL' 1;">task_alt</span>
+</div>
+<h2 class="text-xl font-bold mb-2">批处理任务完成</h2>
+<p class="text-on-surface-variant text-sm mb-6">已成功处理 122 张图片，2 张失败。所有文件已保存至指定目录。</p>
+<div class="flex flex-col gap-2">
+<button class="w-full bg-primary text-on-primary py-3 rounded-lg font-bold hover:bg-primary-dim transition-colors">打开输出目录</button>
+<div class="grid grid-cols-2 gap-2">
+<button class="bg-surface-container-high text-on-surface py-2.5 rounded-lg text-sm font-bold hover:bg-surface-container-highest transition-colors">再处理一批</button>
+<button class="bg-surface-container-high text-on-surface py-2.5 rounded-lg text-sm font-bold hover:bg-surface-container-highest transition-colors">返回首页</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Background Decoration -->
+<div class="fixed -bottom-24 -right-24 w-96 h-96 bg-primary/5 rounded-full blur-3xl -z-10"></div>
+<div class="fixed -top-24 -left-24 w-64 h-64 bg-primary/5 rounded-full blur-3xl -z-10"></div>
+</body></html>

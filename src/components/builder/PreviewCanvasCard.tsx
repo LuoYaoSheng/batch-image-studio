@@ -16,6 +16,8 @@ type ResizeMode =
 const HANDLE_SIZE = 12;
 const CORNER_HANDLE_SIZE = 16;
 const EDGE_HIT_SIZE = 8;
+const KEYBOARD_MOVE_STEP = 0.01; // 键盘移动步长
+const KEYBOARD_RESIZE_STEP = 0.01; // 键盘调整大小步长
 
 export function PreviewCanvasCard({
   title,
@@ -274,6 +276,70 @@ export function PreviewCanvasCard({
     window.addEventListener("pointerup", onUp);
   }
 
+  // 键盘微调支持
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!editable || !region || !onRegionChange) {
+      return;
+    }
+
+    // 只处理方向键
+    if (
+      !["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key) &&
+      !(event.shiftKey && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key))
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+
+    const isShift = event.shiftKey;
+    const step = isShift ? KEYBOARD_RESIZE_STEP : KEYBOARD_MOVE_STEP;
+
+    if (!isShift) {
+      // 移动模式
+      let newX = region.x;
+      let newY = region.y;
+
+      switch (event.key) {
+        case "ArrowUp":
+          newY = Math.max(0, region.y - step);
+          break;
+        case "ArrowDown":
+          newY = Math.min(1 - region.height, region.y + step);
+          break;
+        case "ArrowLeft":
+          newX = Math.max(0, region.x - step);
+          break;
+        case "ArrowRight":
+          newX = Math.min(1 - region.width, region.x + step);
+          break;
+      }
+
+      onRegionChange({ x: newX, y: newY });
+    } else {
+      // 调整大小模式
+      let newWidth = region.width;
+      let newHeight = region.height;
+
+      switch (event.key) {
+        case "ArrowUp":
+          newHeight = Math.max(0.02, region.height - step);
+          break;
+        case "ArrowDown":
+          newHeight = Math.min(1 - region.y, region.height + step);
+          break;
+        case "ArrowLeft":
+          newWidth = Math.max(0.02, region.width - step);
+          break;
+        case "ArrowRight":
+          newWidth = Math.min(1 - region.x, region.width + step);
+          break;
+      }
+
+      onRegionChange({ width: newWidth, height: newHeight });
+    }
+  };
+
   return (
     <section className="rounded-[24px] border border-line bg-surface p-5">
       <div className="flex items-center justify-between">
@@ -309,8 +375,9 @@ export function PreviewCanvasCard({
         {image && region && selected ? (
           <div
             className={`absolute select-none ${
-              editable ? "cursor-move" : "pointer-events-none"
+              editable ? "cursor-move focus:outline-none" : "pointer-events-none"
             }`}
+            tabIndex={editable ? 0 : undefined}
             style={{
               left: `${contained.left + region.x * contained.width}px`,
               top: `${contained.top + region.y * contained.height}px`,
@@ -319,6 +386,7 @@ export function PreviewCanvasCard({
             }}
             onPointerMove={handleRegionPointerMove}
             onPointerLeave={handleRegionPointerLeave}
+            onKeyDown={handleKeyDown}
             onPointerDown={(event) => {
               const mode = getResizeModeAtPosition(event.clientX, event.clientY);
               if (mode) {
@@ -399,7 +467,7 @@ export function PreviewCanvasCard({
       {editable ? (
         <p className="mt-3 text-xs text-muted">
           {region
-            ? "拖动四角或四边手柄可调整大小，拖动框内可移动位置。"
+            ? "拖动四角或四边手柄可调整大小，拖动框内可移动位置。选中后可使用方向键微调，Shift+方向键调整大小。"
             : "当前没有选区。点击图片可快速创建一个区域，再继续调整。"}
         </p>
       ) : null}

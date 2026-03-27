@@ -1802,6 +1802,7 @@ export default function App() {
       />
     );
   } else if (currentScreen === "preview") {
+    const canStartBatch = !isSelectedImageBusy && Boolean(preview);
     content = (
       <PreviewScreen
         importedImages={importedImages}
@@ -1815,8 +1816,11 @@ export default function App() {
         sizeHandlingMode={sizeHandlingMode}
         previewStatus={previewStatus}
         loadingMessage={selectedPreviewTaskState?.message}
+        canStartBatch={canStartBatch}
         onSelectImage={handlePreviewSelectImage}
         onOpenTemplates={() => setTemplatePicker({ source: "preview" })}
+        onStartBatch={() => void runBatch()}
+        onBackToBuilder={() => setCurrentScreen("builder")}
       />
     );
   } else if (currentScreen === "batch") {

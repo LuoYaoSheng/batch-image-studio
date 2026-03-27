@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { AppScreen } from "../../types";
 import { SidebarNav } from "./SidebarNav";
 import { TopBar } from "./TopBar";
+import { KeyboardShortcutsDialog } from "./KeyboardShortcutsDialog";
 
 export function AppShell({
   currentScreen,
@@ -21,6 +22,8 @@ export function AppShell({
   notification?: ReactNode;
   children: ReactNode;
 }) {
+  const [showShortcuts, setShowShortcuts] = useState(false);
+
   // 全局快捷键支持
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -51,11 +54,23 @@ export function AppShell({
         event.preventDefault();
         onNavigate("settings");
       }
+
+      // Cmd/Ctrl + / 显示快捷键帮助
+      if ((event.metaKey || event.ctrlKey) && event.key === "/") {
+        event.preventDefault();
+        setShowShortcuts(true);
+      }
+
+      // Esc 关闭对话框
+      if (event.key === "Escape" && showShortcuts) {
+        event.preventDefault();
+        setShowShortcuts(false);
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onNavigate]);
+  }, [onNavigate, showShortcuts]);
 
   return (
     <div className="flex min-h-screen bg-[linear-gradient(180deg,_#f8fbff_0%,_#eef3f8_100%)] text-ink">
@@ -65,6 +80,7 @@ export function AppShell({
         {notification ? <div className="px-6 pt-4">{notification}</div> : null}
         <main className="min-w-0 flex-1 px-6 py-5">{children}</main>
       </div>
+      <KeyboardShortcutsDialog isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
     </div>
   );
 }

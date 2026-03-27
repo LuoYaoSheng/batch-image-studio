@@ -27,56 +27,97 @@ export function BatchScreen({
   const percent = progress && progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
   const elapsed = startedAt ? Date.now() - startedAt : 0;
   const failedEntries = result?.entries.filter((entry) => !entry.success) ?? [];
+  const isComplete = result !== null && !isBatchRunning;
+  const isAllSuccess = isComplete && result.failedCount === 0;
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[28px] border border-line bg-white p-6 shadow-sm">
+      <section className={`rounded-[28px] border p-6 shadow-sm transition-all ${
+        isAllSuccess ? "border-[#cde8d6] bg-gradient-to-br from-[#f0faf4] to-white" : "border-line bg-white"
+      }`}>
         <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs uppercase tracking-[0.22em] text-primary-strong">Batch Progress</p>
-            <h3 className="mt-2 text-2xl font-semibold text-ink">
-              {progress ? "批量任务进行中" : result ? "批量任务已完成" : "等待开始批量任务"}
-            </h3>
-            <p className="mt-3 text-sm text-muted">
-              {progress
-                ? `当前 ${progress.completed}/${progress.total} 张，成功 ${progress.successCount}，失败 ${progress.failedCount}`
-                : result
-                  ? `共处理 ${result.processedCount} 张，成功 ${result.successCount}，失败 ${result.failedCount}`
-                  : "从预览页开始批量处理后，这里会显示进度和结果。"}
-            </p>
+          <div className="flex items-start gap-4">
+            {/* 完成状态图标 */}
+            {isAllSuccess && (
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#cde8d6]">
+                <svg className="h-6 w-6 text-[#2d7a4e]" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+            )}
+            <div>
+              <p className="text-xs uppercase tracking-[0.22em] text-primary-strong">Batch Progress</p>
+              <h3 className="mt-2 text-2xl font-semibold text-ink">
+                {isAllSuccess ? "批量处理完成！" : progress ? "批量任务进行中" : result ? "批量任务已完成" : "等待开始批量任务"}
+              </h3>
+              {isAllSuccess ? null : (
+                <p className="mt-3 text-sm text-muted">
+                  {progress
+                    ? `当前 ${progress.completed}/${progress.total} 张，成功 ${progress.successCount}，失败 ${progress.failedCount}`
+                    : result
+                      ? `共处理 ${result.processedCount} 张，成功 ${result.successCount}，失败 ${result.failedCount}`
+                      : "从预览页开始批量处理后，这里会显示进度和结果。"}
+                </p>
+              )}
+            </div>
           </div>
-          <div className="rounded-full bg-primary/10 px-4 py-2 text-sm font-medium text-primary-strong">
-            {progress ? `${percent}%` : result ? "100%" : "0%"}
+          <div className={`rounded-full px-4 py-2 text-sm font-medium ${
+            isAllSuccess
+              ? "bg-[#cde8d6] text-[#2d7a4e]"
+              : "bg-primary/10 text-primary-strong"
+          }`}>
+            {isAllSuccess ? "✓ 完成" : progress ? `${percent}%` : result ? "100%" : "0%"}
           </div>
         </div>
 
-        <div className="mt-5 h-3 overflow-hidden rounded-full bg-primary/10">
-          <div
-            className="h-full rounded-full bg-primary transition-all duration-500"
-            style={{ width: `${progress ? percent : result ? 100 : 0}%` }}
-          />
-        </div>
+        {!isAllSuccess && (
+          <>
+            <div className="mt-5 h-3 overflow-hidden rounded-full bg-primary/10">
+              <div
+                className="h-full rounded-full bg-primary transition-all duration-500"
+                style={{ width: `${progress ? percent : result ? 100 : 0}%` }}
+              />
+            </div>
 
-        <div className="mt-4 grid gap-4 md:grid-cols-4">
-          <div className="rounded-[24px] border border-line bg-surface px-4 py-4">
-            <p className="text-xs text-muted">待处理图片</p>
-            <p className="mt-2 text-sm font-medium text-ink">{importedImages.length} 张</p>
+            <div className="mt-4 grid gap-4 md:grid-cols-4">
+              <div className="rounded-[24px] border border-line bg-surface px-4 py-4">
+                <p className="text-xs text-muted">待处理图片</p>
+                <p className="mt-2 text-sm font-medium text-ink">{importedImages.length} 张</p>
+              </div>
+              <div className="rounded-[24px] border border-line bg-surface px-4 py-4">
+                <p className="text-xs text-muted">当前文件</p>
+                <p className="mt-2 truncate text-sm font-medium text-ink">{progress?.currentFile ?? "未开始"}</p>
+              </div>
+              <div className="rounded-[24px] border border-line bg-surface px-4 py-4">
+                <p className="text-xs text-muted">运行时长</p>
+                <p className="mt-2 text-sm font-medium text-ink">
+                  {startedAt ? formatDuration(elapsed) : "未开始"}
+                </p>
+              </div>
+              <div className="rounded-[24px] border border-line bg-surface px-4 py-4">
+                <p className="text-xs text-muted">输出目录</p>
+                <p className="mt-2 truncate text-sm font-medium text-ink">{result?.outputDir ?? "未生成"}</p>
+              </div>
+            </div>
+          </>
+        )}
+
+        {isAllSuccess && (
+          <div className="mt-5 grid gap-4 md:grid-cols-3">
+            <div className="rounded-[24px] border border-[#cde8d6] bg-white px-4 py-4">
+              <p className="text-xs text-muted">成功处理</p>
+              <p className="mt-2 text-lg font-semibold text-[#2d7a4e]">{result.successCount} 张</p>
+            </div>
+            <div className="rounded-[24px] border border-[#cde8d6] bg-white px-4 py-4">
+              <p className="text-xs text-muted">总用时</p>
+              <p className="mt-2 text-lg font-semibold text-ink">{formatDuration(elapsed)}</p>
+            </div>
+            <div className="rounded-[24px] border border-[#cde8d6] bg-white px-4 py-4">
+              <p className="text-xs text-muted">输出目录</p>
+              <p className="mt-2 truncate text-sm font-medium text-ink">{result.outputDir}</p>
+            </div>
           </div>
-          <div className="rounded-[24px] border border-line bg-surface px-4 py-4">
-            <p className="text-xs text-muted">当前文件</p>
-            <p className="mt-2 truncate text-sm font-medium text-ink">{progress?.currentFile ?? "未开始"}</p>
-          </div>
-          <div className="rounded-[24px] border border-line bg-surface px-4 py-4">
-            <p className="text-xs text-muted">运行时长</p>
-            <p className="mt-2 text-sm font-medium text-ink">
-              {startedAt ? formatDuration(elapsed) : "未开始"}
-            </p>
-          </div>
-          <div className="rounded-[24px] border border-line bg-surface px-4 py-4">
-            <p className="text-xs text-muted">输出目录</p>
-            <p className="mt-2 truncate text-sm font-medium text-ink">{result?.outputDir ?? "未生成"}</p>
-          </div>
-        </div>
+        )}
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">

@@ -1,6 +1,7 @@
 import { useDeferredValue, useState } from "react";
 import type { Template } from "../types";
 import { TemplateCard } from "../components/templates/TemplateCard";
+import { DecisionDialog } from "../components/layout/DecisionDialog";
 
 export function TemplatesScreen({
   templates,
@@ -16,10 +17,26 @@ export function TemplatesScreen({
   onCreateNew: () => void;
 }) {
   const [query, setQuery] = useState("");
+  const [pendingDeleteTemplate, setPendingDeleteTemplate] = useState<Template | null>(null);
   const deferredQuery = useDeferredValue(query);
   const filtered = templates.filter((template) =>
     template.name.toLowerCase().includes(deferredQuery.trim().toLowerCase()),
   );
+
+  const handleDeleteClick = (template: Template) => {
+    setPendingDeleteTemplate(template);
+  };
+
+  const confirmDelete = () => {
+    if (pendingDeleteTemplate) {
+      onDelete(pendingDeleteTemplate.id);
+      setPendingDeleteTemplate(null);
+    }
+  };
+
+  const cancelDelete = () => {
+    setPendingDeleteTemplate(null);
+  };
 
   return (
     <div className="space-y-6">
@@ -62,10 +79,26 @@ export function TemplatesScreen({
               template={template}
               onApply={() => onApply(template.id)}
               onEdit={() => onEdit(template.id)}
-              onDelete={() => onDelete(template.id)}
+              onDelete={() => handleDeleteClick(template)}
             />
           ))}
         </section>
+      )}
+
+      {/* 删除确认对话框 */}
+      {pendingDeleteTemplate && (
+        <DecisionDialog
+          title="确认删除模板"
+          description={
+            <span>
+              确定要删除模板 <strong>"{pendingDeleteTemplate.name}"</strong> 吗？
+              <br />
+              此操作无法撤销。
+            </span>
+          }
+          cancelAction={{ label: "取消", onClick: cancelDelete }}
+          primaryAction={{ label: "确认删除", tone: "danger", onClick: confirmDelete }}
+        />
       )}
     </div>
   );

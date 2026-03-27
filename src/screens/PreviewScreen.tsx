@@ -21,8 +21,11 @@ export function PreviewScreen({
   sizeHandlingMode,
   previewStatus,
   loadingMessage,
+  canStartBatch,
   onSelectImage,
   onOpenTemplates,
+  onStartBatch,
+  onBackToBuilder,
 }: {
   importedImages: ImportedImage[];
   selectedImageId: string | null;
@@ -35,8 +38,11 @@ export function PreviewScreen({
   sizeHandlingMode: "relative" | "absolute" | "bottomRight";
   previewStatus: string;
   loadingMessage?: string;
+  canStartBatch: boolean;
   onSelectImage: (id: string) => void;
   onOpenTemplates?: () => void;
+  onStartBatch?: () => void;
+  onBackToBuilder?: () => void;
 }) {
   if (importedImages.length === 0) {
     return (
@@ -74,6 +80,46 @@ export function PreviewScreen({
           </p>
         </div>
         <ComparisonSlider beforeSrc={beforeSrc} afterSrc={afterSrc} />
+
+        {/* 主要操作按钮 */}
+        <div className="rounded-[28px] border border-line bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-ink">确认效果无误后开始批量处理</p>
+              <p className="mt-1 text-xs text-muted">将处理 {importedImages.length} 张图片</p>
+            </div>
+            <div className="flex items-center gap-3">
+              {onBackToBuilder && (
+                <button
+                  className="rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-medium hover:bg-white transition-colors"
+                  type="button"
+                  onClick={onBackToBuilder}
+                >
+                  返回修改
+                </button>
+              )}
+              {onOpenTemplates && (
+                <button
+                  className="rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-medium hover:bg-white transition-colors"
+                  type="button"
+                  onClick={onOpenTemplates}
+                >
+                  切换模板
+                </button>
+              )}
+              {onStartBatch && (
+                <button
+                  className="rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-white hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  type="button"
+                  disabled={!canStartBatch}
+                  onClick={onStartBatch}
+                >
+                  开始批量处理
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       </section>
 
       <section className="rounded-[28px] border border-line bg-white p-5 shadow-sm">

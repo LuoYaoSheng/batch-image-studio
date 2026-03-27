@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "primary": "#2e59b9",
+              "on-primary": "#f8f7ff",
+              "outline-variant": "#acb3b8",
+              "surface-container-low": "#f2f4f6",
+              "error-dim": "#4e0309",
+              "tertiary": "#615b77",
+              "primary-dim": "#1d4dac",
+              "primary-container": "#dae2ff",
+              "on-secondary-container": "#515155",
+              "on-surface-variant": "#596065",
+              "on-error-container": "#752121",
+              "surface-container-highest": "#dde3e9",
+              "inverse-surface": "#0c0e10",
+              "on-secondary-fixed-variant": "#5b5b5f",
+              "tertiary-fixed": "#e3dbfd",
+              "on-surface": "#2d3338",
+              "secondary-fixed": "#e4e2e6",
+              "on-tertiary-container": "#524c68",
+              "inverse-on-surface": "#9c9d9f",
+              "on-tertiary-fixed": "#3f3a54",
+              "on-background": "#2d3338",
+              "tertiary-dim": "#554f6b",
+              "primary-fixed-dim": "#c6d3ff",
+              "on-primary-container": "#1c4cab",
+              "on-secondary": "#faf8fc",
+              "outline": "#757c81",
+              "error-container": "#fe8983",
+              "secondary-dim": "#535356",
+              "surface-tint": "#2e59b9",
+              "on-tertiary": "#fcf7ff",
+              "tertiary-fixed-dim": "#d5cdee",
+              "inverse-primary": "#749afe",
+              "secondary-fixed-dim": "#d5d4d8",
+              "surface-container": "#ebeef2",
+              "on-primary-fixed-variant": "#2a56b5",
+              "surface": "#f9f9fb",
+              "primary-fixed": "#dae2ff",
+              "on-tertiary-fixed-variant": "#5b5672",
+              "secondary": "#5f5f62",
+              "on-error": "#fff7f6",
+              "on-secondary-fixed": "#3f3f43",
+              "surface-bright": "#f9f9fb",
+              "error": "#9f403d",
+              "on-primary-fixed": "#003992",
+              "secondary-container": "#e4e2e6",
+              "surface-container-high": "#e4e9ee",
+              "surface-container-lowest": "#ffffff",
+              "background": "#f9f9fb",
+              "tertiary-container": "#e3dbfd",
+              "surface-dim": "#d3dbe2",
+              "surface-variant": "#dde3e9"
+            },
+            fontFamily: {
+              "headline": ["Inter", "PingFang SC", "sans-serif"],
+              "body": ["Inter", "PingFang SC", "sans-serif"],
+              "label": ["Inter", "PingFang SC", "sans-serif"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .tonal-layering {
+            background-color: #ebeef2;
+        }
+        body {
+            font-family: 'Inter', 'PingFang SC', sans-serif;
+            background-color: #f9f9fb;
+            color: #2d3338;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #dde3e9;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body class="antialiased select-none">
+<!-- TopNavBar -->
+<nav class="fixed top-0 w-full z-50 h-12 bg-[#f9f9fb]/80 backdrop-blur-xl border-b border-[#596065]/10 shadow-sm shadow-[#2d3338]/5 flex items-center justify-between px-6">
+<div class="flex items-center gap-4">
+<span class="text-lg font-bold tracking-tight text-[#2d3338]">图片批量处理大师</span>
+<div class="h-4 w-[1px] bg-[#596065]/20 mx-2"></div>
+<!-- Search & Filters Integrated in Top Bar -->
+<div class="flex items-center bg-surface-container-low rounded px-3 py-1 gap-2">
+<span class="material-symbols-outlined text-on-surface-variant text-sm" data-icon="search">search</span>
+<input class="bg-transparent border-none text-sm focus:ring-0 p-0 w-48 text-on-surface placeholder:text-on-surface-variant" placeholder="搜索任务名称..." type="text"/>
+</div>
+<div class="flex items-center gap-2 ml-2">
+<div class="flex items-center gap-1 px-2 py-1 hover:bg-[#ebeef2] rounded transition-colors duration-200 cursor-pointer text-xs text-on-surface-variant font-medium">
+<span class="material-symbols-outlined text-sm" data-icon="calendar_today">calendar_today</span>
+<span>全部日期</span>
+</div>
+<div class="flex items-center gap-1 px-2 py-1 hover:bg-[#ebeef2] rounded transition-colors duration-200 cursor-pointer text-xs text-on-surface-variant font-medium border border-transparent active:scale-95">
+<span class="material-symbols-outlined text-sm" data-icon="filter_list">filter_list</span>
+<span>状态筛选</span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-1">
+<button class="w-8 h-8 flex items-center justify-center rounded hover:bg-[#ebeef2] transition-colors duration-200 active:scale-95">
+<span class="material-symbols-outlined text-[20px]" data-icon="help">help</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center rounded hover:bg-[#ebeef2] transition-colors duration-200 active:scale-95">
+<span class="material-symbols-outlined text-[20px]" data-icon="remove">remove</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center rounded hover:bg-[#ebeef2] transition-colors duration-200 active:scale-95">
+<span class="material-symbols-outlined text-[20px]" data-icon="fullscreen">fullscreen</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center rounded hover:bg-[#ebeef2] transition-colors duration-200 active:scale-95 text-error">
+<span class="material-symbols-outlined text-[20px]" data-icon="close">close</span>
+</button>
+</div>
+</nav>
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-12 h-[calc(100vh-48px)] w-64 bg-[#ebeef2] flex flex-col py-6 px-4 gap-2">
+<div class="mb-6 px-2">
+<h2 class="text-xs font-bold text-on-surface-variant tracking-widest uppercase opacity-60">工作区</h2>
+<p class="text-xs text-on-surface-variant font-medium mt-1">静默生产力</p>
+</div>
+<nav class="flex flex-col gap-1">
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-sm font-medium text-[#596065] hover:bg-[#ffffff]/50 transition-all duration-300 ease-in-out hover:translate-x-1" href="#">
+<span class="material-symbols-outlined" data-icon="home">home</span>
+<span>首页</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-sm font-medium text-[#596065] hover:bg-[#ffffff]/50 transition-all duration-300 ease-in-out hover:translate-x-1" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard_customize">dashboard_customize</span>
+<span>模板中心</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded bg-[#ffffff] text-[#2e59b9] border-l-4 border-[#2e59b9] shadow-sm text-sm font-medium transition-all duration-300 ease-in-out" href="#">
+<span class="material-symbols-outlined" data-icon="history" style="font-variation-settings: 'FILL' 1;">history</span>
+<span>历史记录</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-sm font-medium text-[#596065] hover:bg-[#ffffff]/50 transition-all duration-300 ease-in-out hover:translate-x-1" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span>设置</span>
+</a>
+</nav>
+<div class="mt-auto pt-4 border-t border-[#596065]/10 flex flex-col gap-1">
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-sm font-medium text-[#596065] hover:bg-[#ffffff]/50 transition-all duration-300 ease-in-out hover:translate-x-1" href="#">
+<span class="material-symbols-outlined" data-icon="contact_support">contact_support</span>
+<span>帮助反馈</span>
+</a>
+<button class="mt-4 w-full bg-primary text-on-primary py-3 rounded-xl font-semibold shadow-lg shadow-primary/20 hover:bg-primary-dim transition-all active:scale-95 flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[18px]" data-icon="add">add</span>
+<span>开始处理</span>
+</button>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="ml-64 mt-12 min-h-[calc(100vh-48px)] p-8">
+<header class="mb-8">
+<h1 class="text-2xl font-bold text-on-surface tracking-tight">历史记录</h1>
+<p class="text-sm text-on-surface-variant mt-1">管理并复用您之前的所有图片处理任务。</p>
+</header>
+<!-- Tasks Content Section -->
+<div class="bg-surface-container-lowest rounded-xl shadow-sm border border-outline-variant/10 overflow-hidden">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-low/50 border-b border-outline-variant/20">
+<th class="px-6 py-4 text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">任务名称 &amp; 日期</th>
+<th class="px-6 py-4 text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">使用模板</th>
+<th class="px-6 py-4 text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">图片数量</th>
+<th class="px-6 py-4 text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">处理结果</th>
+<th class="px-6 py-4 text-[11px] font-bold text-on-surface-variant uppercase tracking-wider">输出路径</th>
+<th class="px-6 py-4 text-[11px] font-bold text-on-surface-variant uppercase tracking-wider text-right">操作</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/10">
+<!-- Task Item 1 -->
+<tr class="hover:bg-surface-container-low/30 transition-colors group">
+<td class="px-6 py-5">
+<div class="flex flex-col">
+<span class="text-sm font-semibold text-on-surface group-hover:text-primary transition-colors">电商详情页压缩_2024Q3</span>
+<span class="text-[11px] text-on-surface-variant mt-1">2024-05-20 14:30:22</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 bg-secondary-container text-on-secondary-container text-[11px] font-medium rounded-full">
+<span class="material-symbols-outlined text-[12px]" data-icon="style">style</span>
+                                高质量WebP转换
+                            </span>
+</td>
+<td class="px-6 py-5">
+<span class="text-sm font-medium text-on-surface">128 张</span>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-1">
+<div class="w-2 h-2 rounded-full bg-emerald-500"></div>
+<span class="text-xs font-medium text-on-surface">128</span>
+</div>
+<div class="flex items-center gap-1 opacity-40">
+<div class="w-2 h-2 rounded-full bg-error"></div>
+<span class="text-xs font-medium text-on-surface">0</span>
+</div>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-2 max-w-[180px]">
+<span class="material-symbols-outlined text-on-surface-variant text-[16px]" data-icon="folder_open">folder_open</span>
+<span class="text-[11px] text-on-surface-variant truncate">/Users/work/Desktop/Output...</span>
+</div>
+</td>
+<td class="px-6 py-5 text-right">
+<div class="flex items-center justify-end gap-2">
+<button class="p-2 rounded-lg hover:bg-primary-container text-primary transition-colors active:scale-95" title="复用模板">
+<span class="material-symbols-outlined" data-icon="refresh">refresh</span>
+</button>
+<button class="p-2 rounded-lg hover:bg-surface-container-high text-on-surface-variant transition-colors active:scale-95" title="查看详情">
+<span class="material-symbols-outlined" data-icon="info">info</span>
+</button>
+<button class="p-2 rounded-lg hover:bg-surface-container-high text-on-surface-variant transition-colors active:scale-95" title="打开目录">
+<span class="material-symbols-outlined" data-icon="launch">launch</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Task Item 2 -->
+<tr class="hover:bg-surface-container-low/30 transition-colors group">
+<td class="px-6 py-5">
+<div class="flex flex-col">
+<span class="text-sm font-semibold text-on-surface">社交媒体水印添加</span>
+<span class="text-[11px] text-on-surface-variant mt-1">2024-05-18 09:12:45</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 bg-secondary-container text-on-secondary-container text-[11px] font-medium rounded-full">
+<span class="material-symbols-outlined text-[12px]" data-icon="style">style</span>
+                                居中浅色水印
+                            </span>
+</td>
+<td class="px-6 py-5">
+<span class="text-sm font-medium text-on-surface">45 张</span>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-1">
+<div class="w-2 h-2 rounded-full bg-emerald-500"></div>
+<span class="text-xs font-medium text-on-surface">42</span>
+</div>
+<div class="flex items-center gap-1">
+<div class="w-2 h-2 rounded-full bg-error"></div>
+<span class="text-xs font-medium text-error">3</span>
+</div>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-2 max-w-[180px]">
+<span class="material-symbols-outlined text-on-surface-variant text-[16px]" data-icon="folder_open">folder_open</span>
+<span class="text-[11px] text-on-surface-variant truncate">/Downloads/Processed_Watermark...</span>
+</div>
+</td>
+<td class="px-6 py-5 text-right">
+<div class="flex items-center justify-end gap-2">
+<button class="p-2 rounded-lg hover:bg-primary-container text-primary transition-colors active:scale-95">
+<span class="material-symbols-outlined" data-icon="refresh">refresh</span>
+</button>
+<button class="p-2 rounded-lg hover:bg-surface-container-high text-on-surface-variant transition-colors active:scale-95">
+<span class="material-symbols-outlined" data-icon="info">info</span>
+</button>
+<button class="p-2 rounded-lg hover:bg-surface-container-high text-on-surface-variant transition-colors active:scale-95">
+<span class="material-symbols-outlined" data-icon="launch">launch</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Task Item 3 -->
+<tr class="hover:bg-surface-container-low/30 transition-colors group">
+<td class="px-6 py-5">
+<div class="flex flex-col">
+<span class="text-sm font-semibold text-on-surface">产品原图备份重命名</span>
+<span class="text-[11px] text-on-surface-variant mt-1">2024-05-15 21:05:00</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 bg-secondary-container text-on-secondary-container text-[11px] font-medium rounded-full">
+<span class="material-symbols-outlined text-[12px]" data-icon="style">style</span>
+                                基础重命名
+                            </span>
+</td>
+<td class="px-6 py-5">
+<span class="text-sm font-medium text-on-surface">1,024 张</span>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-1">
+<div class="w-2 h-2 rounded-full bg-emerald-500"></div>
+<span class="text-xs font-medium text-on-surface">1,024</span>
+</div>
+<div class="flex items-center gap-1 opacity-40">
+<div class="w-2 h-2 rounded-full bg-error"></div>
+<span class="text-xs font-medium text-on-surface">0</span>
+</div>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-2 max-w-[180px]">
+<span class="material-symbols-outlined text-on-surface-variant text-[16px]" data-icon="folder_open">folder_open</span>
+<span class="text-[11px] text-on-surface-variant truncate">E:/Backup/Project_Omega/Photos...</span>
+</div>
+</td>
+<td class="px-6 py-5 text-right">
+<div class="flex items-center justify-end gap-2">
+<button class="p-2 rounded-lg hover:bg-primary-container text-primary transition-colors active:scale-95">
+<span class="material-symbols-outlined" data-icon="refresh">refresh</span>
+</button>
+<button class="p-2 rounded-lg hover:bg-surface-container-high text-on-surface-variant transition-colors active:scale-95">
+<span class="material-symbols-outlined" data-icon="info">info</span>
+</button>
+<button class="p-2 rounded-lg hover:bg-surface-container-high text-on-surface-variant transition-colors active:scale-95">
+<span class="material-symbols-outlined" data-icon="launch">launch</span>
+</button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+<!-- Pagination or Load More (Subtle) -->
+<div class="px-6 py-4 bg-surface-container-low/20 flex justify-between items-center border-t border-outline-variant/10">
+<span class="text-xs text-on-surface-variant">显示 3 个任务 (共 156 个记录)</span>
+<div class="flex gap-2">
+<button class="px-3 py-1.5 rounded bg-surface-container-high text-on-surface text-xs font-medium hover:bg-surface-container-highest transition-colors active:scale-95">上一页</button>
+<button class="px-3 py-1.5 rounded bg-surface-container-high text-on-surface text-xs font-medium hover:bg-surface-container-highest transition-colors active:scale-95">下一页</button>
+</div>
+</div>
+</div>
+<!-- Empty State (Hidden in this preview, but coded for logic) -->
+<div class="hidden flex-col items-center justify-center py-24 text-center">
+<div class="w-48 h-48 mb-6 relative">
+<div class="absolute inset-0 bg-primary/5 rounded-full blur-3xl"></div>
+<img class="w-full h-full object-contain grayscale opacity-20 contrast-75" data-alt="abstract minimalist illustration of an empty filing cabinet or drawer in soft grey tones" src="https://lh3.googleusercontent.com/aida-public/AB6AXuADu4U_E74g7JqNi6-bkYIZs193gQimQnl9krRqdzZiut4Krrs58kRYhHrNfXezkPEZEwZ41E1TFNolU8ErjswwvIxQSzL-HnjzUi43yoz2m-g8JJpwm3UU-8c-8-GzfE_lKG9YawzLQ3PPCy4u2N9t1ewe0TMZrlqlU21NXxX7qfZ7t2p-I3Hh0WtCQEfNNcozHTmXq3rFkGSH68SAbRnq4De1s5Tp0zVbgvfeUTZ7keAyE-KeqhkqbT3gqA4LXkxidiItojfDD5g"/>
+</div>
+<h3 class="text-xl font-bold text-on-surface">暂无历史处理记录</h3>
+<p class="text-sm text-on-surface-variant mt-2 max-w-xs mx-auto">
+                您最近处理的任务将显示在这里，方便随时复用模板或查看结果。
+            </p>
+<button class="mt-8 px-8 py-3 bg-primary text-on-primary rounded-xl font-bold shadow-lg shadow-primary/20 hover:bg-primary-dim transition-all active:scale-95">
+                开始您的第一次处理
+            </button>
+</div>
+<!-- Detail Panel (Bento-style preview of last task) -->
+<section class="mt-12 grid grid-cols-12 gap-6">
+<div class="col-span-12">
+<h2 class="text-sm font-bold text-on-surface-variant tracking-wider uppercase mb-4 opacity-70">最近处理概览</h2>
+</div>
+<!-- Bento Card: Last Task -->
+<div class="col-span-12 md:col-span-8 bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/10 shadow-sm flex flex-col md:flex-row gap-6">
+<div class="w-full md:w-48 h-48 rounded-lg overflow-hidden bg-surface-container-low relative">
+<img class="w-full h-full object-cover" data-alt="grid of high-resolution digital photographs being organized on a workspace, professional color grading aesthetic" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDtDqLx812mmOC4odxL5gYJuBd0cGVBSB-SP-zcdSbprAWHV-cOHU2aMsib0xxZTCI6nrJu1K8H6OeFBUC3bATHkhQOhIJSEe2S6nvuF4t6up1yKiIjiwwkE57v1I597YzUKQPcUweRflzSm4ahwTJYuIeH-mRn40-ENgIAoLUO8dEKPVbzxE9_tP1GqncKIxL-orpxOfTnbb1_RuDbKHrsoJkrSrBZ4P5oNHkzI1R4EJqR_fc-8xchpspj0PD-H9ftRW2zIT0Z_hE"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent flex items-end p-3">
+<span class="text-[10px] text-white font-medium bg-primary/80 px-2 py-0.5 rounded">预览图片</span>
+</div>
+</div>
+<div class="flex-1 flex flex-col">
+<div class="flex items-start justify-between">
+<div>
+<span class="text-xs font-bold text-primary uppercase">任务进行中</span>
+<h3 class="text-lg font-bold text-on-surface mt-1">跨境电商主图优化批次</h3>
+</div>
+<span class="material-symbols-outlined text-primary" data-icon="pending" style="font-variation-settings: 'FILL' 1;">pending</span>
+</div>
+<div class="mt-6 space-y-3">
+<div class="w-full bg-surface-container-highest h-2 rounded-full overflow-hidden">
+<div class="bg-gradient-to-r from-primary to-primary-dim h-full w-3/4"></div>
+</div>
+<div class="flex justify-between text-xs font-medium">
+<span class="text-on-surface-variant">正在处理: 342 / 450</span>
+<span class="text-primary">75%</span>
+</div>
+</div>
+<div class="mt-auto flex gap-4">
+<div class="flex flex-col">
+<span class="text-[10px] text-on-surface-variant uppercase font-bold">已处理体积</span>
+<span class="text-sm font-bold text-on-surface">1.2 GB</span>
+</div>
+<div class="flex flex-col border-l border-outline-variant/20 pl-4">
+<span class="text-[10px] text-on-surface-variant uppercase font-bold">预计剩余</span>
+<span class="text-sm font-bold text-on-surface">45s</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Bento Card: Quick Action -->
+<div class="col-span-12 md:col-span-4 bg-primary p-6 rounded-xl shadow-lg shadow-primary/20 flex flex-col text-on-primary">
+<span class="material-symbols-outlined text-3xl mb-4" data-icon="auto_awesome">auto_awesome</span>
+<h3 class="text-lg font-bold">批量克隆任务？</h3>
+<p class="text-sm opacity-80 mt-2">
+                    从您的历史记录中选择任何一个成功的任务，一键应用其所有的处理参数到新图片。
+                </p>
+<button class="mt-auto w-full bg-on-primary text-primary py-3 rounded-lg font-bold hover:bg-white transition-colors active:scale-95">
+                    立即尝试
+                </button>
+</div>
+</section>
+</main>
+<!-- Overlay / Tooltip Example -->
+<div class="hidden fixed bottom-10 right-10 bg-surface-container-lowest border border-outline-variant/20 shadow-xl rounded-xl p-4 w-72 z-[100]" id="status-popover">
+<div class="flex items-center gap-3 mb-3">
+<span class="material-symbols-outlined text-emerald-500" data-icon="check_circle">check_circle</span>
+<span class="font-bold text-sm">任务已导出</span>
+</div>
+<p class="text-xs text-on-surface-variant leading-relaxed">
+            “电商详情页压缩_2024Q3” 的 128 张图片已成功导出至您的桌面。
+        </p>
+<button class="mt-4 text-xs font-bold text-primary hover:underline">
+            打开目标文件夹
+        </button>
+</div>
+</body></html>

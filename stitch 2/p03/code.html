@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#2e59b9",
+                        "on-primary": "#f8f7ff",
+                        "outline-variant": "#acb3b8",
+                        "surface-container-low": "#f2f4f6",
+                        "error-dim": "#4e0309",
+                        "tertiary": "#615b77",
+                        "primary-dim": "#1d4dac",
+                        "primary-container": "#dae2ff",
+                        "on-secondary-container": "#515155",
+                        "on-surface-variant": "#596065",
+                        "on-error-container": "#752121",
+                        "surface-container-highest": "#dde3e9",
+                        "inverse-surface": "#0c0e10",
+                        "on-secondary-fixed-variant": "#5b5b5f",
+                        "tertiary-fixed": "#e3dbfd",
+                        "on-surface": "#2d3338",
+                        "secondary-fixed": "#e4e2e6",
+                        "on-tertiary-container": "#524c68",
+                        "inverse-on-surface": "#9c9d9f",
+                        "on-tertiary-fixed": "#3f3a54",
+                        "on-background": "#2d3338",
+                        "tertiary-dim": "#554f6b",
+                        "primary-fixed-dim": "#c6d3ff",
+                        "on-primary-container": "#1c4cab",
+                        "on-secondary": "#faf8fc",
+                        "outline": "#757c81",
+                        "error-container": "#fe8983",
+                        "secondary-dim": "#535356",
+                        "surface-tint": "#2e59b9",
+                        "on-tertiary": "#fcf7ff",
+                        "tertiary-fixed-dim": "#d5cdee",
+                        "inverse-primary": "#749afe",
+                        "secondary-fixed-dim": "#d5d4d8",
+                        "surface-container": "#ebeef2",
+                        "on-primary-fixed-variant": "#2a56b5",
+                        "surface": "#f9f9fb",
+                        "primary-fixed": "#dae2ff",
+                        "on-tertiary-fixed-variant": "#5b5672",
+                        "secondary": "#5f5f62",
+                        "on-error": "#fff7f6",
+                        "on-secondary-fixed": "#3f3f43",
+                        "surface-bright": "#f9f9fb",
+                        "error": "#9f403d",
+                        "on-primary-fixed": "#003992",
+                        "secondary-container": "#e4e2e6",
+                        "surface-container-high": "#e4e9ee",
+                        "surface-container-lowest": "#ffffff",
+                        "background": "#f9f9fb",
+                        "tertiary-container": "#e3dbfd",
+                        "surface-dim": "#d3dbe2",
+                        "surface-variant": "#dde3e9"
+                    },
+                    fontFamily: {
+                        "headline": ["Inter", "PingFang SC", "sans-serif"],
+                        "body": ["Inter", "PingFang SC", "sans-serif"],
+                        "label": ["Inter", "PingFang SC", "sans-serif"]
+                    },
+                    borderRadius: { "DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem" },
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .comparison-slider-handle {
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        .glass-header {
+            background: rgba(249, 249, 251, 0.8);
+            backdrop-filter: blur(12px);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-body overflow-hidden h-screen flex flex-col">
+<!-- TopNavBar -->
+<header class="fixed top-0 w-full z-50 h-12 bg-[#f9f9fb]/80 dark:bg-[#1a1c1e]/80 backdrop-blur-xl border-b border-[#596065]/10 shadow-sm shadow-[#2d3338]/5 flex items-center justify-between px-6">
+<div class="flex items-center gap-4">
+<span class="text-lg font-bold tracking-tight text-[#2d3338] dark:text-[#e2e2e6]">图片批量处理大师</span>
+<div class="h-4 w-[1px] bg-outline-variant/30 mx-2"></div>
+<div class="flex items-center gap-2 text-sm text-on-surface-variant">
+<span class="material-symbols-outlined text-sm">settings_suggest</span>
+<span>当前配置：智能增强 + 80% 质量压缩</span>
+</div>
+</div>
+<div class="flex items-center gap-1">
+<button class="p-2 text-[#596065] hover:bg-[#ebeef2] transition-colors duration-200 active:scale-95">
+<span class="material-symbols-outlined">help</span>
+</button>
+<button class="p-2 text-[#596065] hover:bg-[#ebeef2] transition-colors duration-200 active:scale-95">
+<span class="material-symbols-outlined">remove</span>
+</button>
+<button class="p-2 text-[#596065] hover:bg-[#ebeef2] transition-colors duration-200 active:scale-95">
+<span class="material-symbols-outlined">fullscreen</span>
+</button>
+<button class="p-2 text-[#596065] hover:bg-[#ebeef2] transition-colors duration-200 active:scale-95">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+</header>
+<div class="flex flex-1 mt-12 overflow-hidden">
+<!-- SideNavBar (Preview List Only in this context) -->
+<aside class="w-64 bg-surface-container flex flex-col py-6 px-4 gap-4 overflow-y-auto">
+<div class="px-2 mb-2">
+<h3 class="text-sm font-bold tracking-wide text-on-surface uppercase">预览样张列表</h3>
+<p class="text-[10px] text-on-surface-variant mt-1">已选 5 张代表性图片进行实时预览</p>
+</div>
+<nav class="flex flex-col gap-3">
+<!-- Active Preview Item -->
+<button class="group flex flex-col gap-2 p-2 bg-surface-container-lowest border-l-4 border-primary shadow-sm rounded-r-lg transition-all duration-300">
+<div class="aspect-video w-full overflow-hidden rounded-sm">
+<img class="w-full h-full object-cover" data-alt="scenic mountain lake with reflection at sunset soft warm light" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCFRlzA5N56tcoRUSOlBEoMMHOmhKfYqbD4DNpKOQTVDJK0uyX6yIu4rVdunCeYCWKssUy6J4DqOEydRh2wj8Al4iJ3J09rxveAbEka5XfYYYl1SS_5DN_ebb9n9ioIyycUi64D1VoT5FfNFzMo5SJNNFjBpgz_i9FooY6kOViWNX5_R4o1DUWTL1pM0RBYS8U6SRmx8R_nt4-SaEsBLoiJbt22dlBKMo92TOjY0BpiiZnEhhJz6RqSDyRkuPat-6r5x_aJeM2TirA"/>
+</div>
+<div class="flex justify-between items-center px-1">
+<span class="text-xs font-medium text-primary">Sample_01.jpg</span>
+<span class="material-symbols-outlined text-sm text-primary" style="font-variation-settings: 'FILL' 1;">visibility</span>
+</div>
+</button>
+<!-- Inactive Preview Items -->
+<button class="group flex flex-col gap-2 p-2 hover:bg-surface-container-lowest/50 transition-all duration-300 rounded-lg">
+<div class="aspect-video w-full overflow-hidden rounded-sm opacity-70 group-hover:opacity-100">
+<img class="w-full h-full object-cover" data-alt="misty forest with tall evergreen trees and soft morning fog" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDerMJEmBLTcI2vUI0uz2BXvVRRJGF17W-WXB7hs4vN0a6N83-mTWFr6z04cSJILaT7zRJx4OOCKQOcdJwB59rUuH2Iiz03U3GvHkoZMFCyEZZPlABTtVNFcQVSwdUTkNzvbw-qX5PJ08RTvICuADMOZK8eNI8eSiKQPvBHATjr61RlnRpNhR250cHrZdwSqOccbPqNQjQqyJxrOiCQMxpxVZZ7Rcc19XgGAg5dRnn1Pgl6_RfFRBIYYk-3iLjLIFzGorLQH02LUlY"/>
+</div>
+<div class="flex justify-between items-center px-1">
+<span class="text-xs font-medium text-on-surface-variant">Sample_02.jpg</span>
+</div>
+</button>
+<button class="group flex flex-col gap-2 p-2 hover:bg-surface-container-lowest/50 transition-all duration-300 rounded-lg">
+<div class="aspect-video w-full overflow-hidden rounded-sm opacity-70 group-hover:opacity-100">
+<img class="w-full h-full object-cover" data-alt="vibrant green forest with sunlight filtering through leaves cinematic lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAuOPtDhjHfRfIF_laB4suYpbvqqPzBv3KXtx2GP4WxKeWr9_abONmOUM0fq3PX8jh6h5004K5Eso9_11Wh9PQev3P8PdqEwxpbL0RPUvbqo1pQxkfxIcrGnFbWphgdfz4TL4SMgeDBP_XeeFk-b_IsnDw3fQ2F_S6lbaOafxloNj32wTkddZki-CP_N3ZR4xtusfNs6106ji0EhaGksPRbcLcD5Qu8Djh-OwGSRCRcFOkHXw0fYQFWz61-V-6nWOdn5gVOXjhp9VE"/>
+</div>
+<div class="flex justify-between items-center px-1">
+<span class="text-xs font-medium text-on-surface-variant">Sample_03.jpg</span>
+</div>
+</button>
+<button class="group flex flex-col gap-2 p-2 hover:bg-surface-container-lowest/50 transition-all duration-300 rounded-lg">
+<div class="aspect-video w-full overflow-hidden rounded-sm opacity-70 group-hover:opacity-100">
+<img class="w-full h-full object-cover" data-alt="serene lake surrounded by mountains at blue hour with still water" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDy9A_l31m3etemYVvKdvKI8yF6a1reUI9Z16Wx-LYjaG-6WIkkr-xP4l_8ZFRIr-J_vPuW87HpBwbWz_5OGm0vlap4vDAEi1FqnTBO7AHVqsSoRNDQWt5sLGhcV9fNXWGNN3e498gk4dQxhh2M1eyO8qLZvYPGN65ZPLnHi8ahq5ZLeAhC6BbRrXFOXS41gmjaHX0L4_BmPVhD5N3DBDSKfPERVl4XwBNczm_S91s2JxsrWE2FiB_9QRuDUFoPPNGJ37bgSwHbYEs"/>
+</div>
+<div class="flex justify-between items-center px-1">
+<span class="text-xs font-medium text-on-surface-variant">Sample_04.jpg</span>
+</div>
+</button>
+</nav>
+<div class="mt-auto pt-4">
+<div class="p-3 bg-primary-container/30 rounded-lg">
+<div class="flex items-center gap-2 text-on-primary-fixed-variant mb-1">
+<span class="material-symbols-outlined text-lg">info</span>
+<span class="text-xs font-bold">提示</span>
+</div>
+<p class="text-[11px] text-on-surface-variant leading-relaxed">
+                        当前预览仅供视觉确认，实际导出将应用完整算法深度。
+                    </p>
+</div>
+</div>
+</aside>
+<!-- Main Content Area: Image Preview & Comparison -->
+<main class="flex-1 flex flex-col bg-background p-6 gap-6">
+<!-- Header of Preview -->
+<div class="flex justify-between items-end">
+<div>
+<h1 class="text-2xl font-bold text-on-surface tracking-tight">效果实时对比</h1>
+<p class="text-sm text-on-surface-variant mt-1">拖动中心滑杆查看处理前后的细节差异</p>
+</div>
+<div class="flex items-center gap-3 bg-surface-container-low px-4 py-2 rounded-full">
+<span class="text-xs font-medium text-on-surface-variant">处理耗时</span>
+<span class="text-sm font-bold text-primary">0.24s</span>
+<div class="w-[1px] h-3 bg-outline-variant/30 mx-1"></div>
+<span class="text-xs font-medium text-on-surface-variant">预览内存</span>
+<span class="text-sm font-bold text-on-surface">42MB</span>
+</div>
+</div>
+<!-- Core Preview Zone: Comparison Slider -->
+<div class="relative flex-1 bg-surface-container-highest rounded-xl overflow-hidden shadow-inner group">
+<!-- Original (Back Layer) -->
+<div class="absolute inset-0">
+<img class="w-full h-full object-cover grayscale-[0.2] contrast-[0.9]" data-alt="unprocessed raw photo of mountain landscape slightly dim and desaturated" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAuANmB6YbCL5jBUudF0Yf7KIRFjJKmTjPd0QJy5Jo3XxbKLe8J2D_uuKtL10aztyIJjLRlGQvl0wjOYJ7IxXbYSZ3Mq0GWupZ6eaGh8ffyf57gzTjZO2rkLJxG-hX7DIPDXc97Lq2_Pp6LAG5G-3DoFiOCTvjQkMmWVCFsZFNbLHjFVqnuvspzrLpj-YqdSxNJ7t-eEVebv0J-hRtcDJ1tkcs0zA6d0b4JUcSvUrVt-blbVu-J09AAtDy6_oShhiG705hfJFt_HUc"/>
+<div class="absolute top-4 left-4 bg-black/40 backdrop-blur-md text-white text-[10px] px-2 py-1 rounded uppercase tracking-widest font-bold">原图 (Original)</div>
+</div>
+<!-- Processed (Front Layer, Clipped) -->
+<div class="absolute inset-0 w-1/2 overflow-hidden border-r-2 border-primary transition-all duration-300" style="width: 50%;">
+<img class="w-[200%] h-full object-cover" data-alt="vibrant processed photo of mountain landscape with enhanced saturation and contrast" src="https://lh3.googleusercontent.com/aida-public/AB6AXuChUvFLa4UM6bS1AL1uNed94oOuYyzGIHz9BV-cDcp28-0KKwKZabQoTCBUQzralGrzO7jX4OB6UE8uFxAgNkCvrHyZfTvbpjm2L8Y54CCL29a7ItfqpF59J2GYVbd9QQhCDQrBoRJ9mEU4ls-vWgJy3pVfaiJPf3fB-NsbKt7e2KvuFWwLCA5cjvS1vEZOOBDktjZQYlmnqLlRwBq9GMXTb8Put2jKJdTIwO2K9yJ1SA2QfLxEvMSyjip7J-iQSdQMkI2eCS3jqV0"/>
+<div class="absolute top-4 right-4 bg-primary/80 backdrop-blur-md text-white text-[10px] px-2 py-1 rounded uppercase tracking-widest font-bold">处理后 (Processed)</div>
+</div>
+<!-- Slider Handle -->
+<div class="absolute inset-y-0 left-1/2 w-0.5 bg-primary comparison-slider-handle z-10">
+<div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 bg-primary rounded-full flex items-center justify-center text-white shadow-lg cursor-col-resize active:scale-110 transition-transform">
+<span class="material-symbols-outlined select-none">unfold_more_double</span>
+</div>
+</div>
+<!-- Zoom Controls Overlay -->
+<div class="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-surface-container-lowest/80 backdrop-blur-md p-1.5 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity">
+<button class="p-2 hover:bg-surface-container-high rounded-full transition-colors">
+<span class="material-symbols-outlined">zoom_out</span>
+</button>
+<span class="px-4 text-xs font-bold text-on-surface">100%</span>
+<button class="p-2 hover:bg-surface-container-high rounded-full transition-colors">
+<span class="material-symbols-outlined">zoom_in</span>
+</button>
+<div class="w-[1px] h-4 bg-outline-variant/30 mx-1"></div>
+<button class="p-2 hover:bg-surface-container-high rounded-full transition-colors">
+<span class="material-symbols-outlined">fit_screen</span>
+</button>
+</div>
+</div>
+<!-- Footer Action Area -->
+<div class="flex items-center justify-between mt-auto">
+<div class="flex gap-3">
+<button class="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-surface-container-high text-on-surface font-medium hover:bg-surface-container-highest transition-all duration-200 active:scale-95">
+<span class="material-symbols-outlined text-lg">arrow_back</span>
+<span>返回调整</span>
+</button>
+<button class="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-surface-container-high text-on-surface font-medium hover:bg-surface-container-highest transition-all duration-200 active:scale-95">
+<span class="material-symbols-outlined text-lg">refresh</span>
+<span>重新预览</span>
+</button>
+</div>
+<div class="flex gap-4">
+<button class="flex items-center gap-2 px-6 py-2.5 rounded-lg text-primary font-medium hover:bg-primary/5 transition-all duration-200 active:scale-95">
+<span class="material-symbols-outlined text-lg">save</span>
+<span>保存为模板</span>
+</button>
+<button class="flex items-center gap-3 px-8 py-3 rounded-lg bg-primary text-on-primary font-bold shadow-lg shadow-primary/20 hover:bg-primary-dim hover:translate-y-[-1px] transition-all duration-300 active:scale-95">
+<span>开始批量处理</span>
+<span class="material-symbols-outlined text-lg">rocket_launch</span>
+</button>
+</div>
+</div>
+</main>
+<!-- Right Side Panel: Detail Parameters (Optional but helpful for UI richness) -->
+<aside class="w-72 bg-surface-container border-l border-outline-variant/10 flex flex-col p-6 gap-6">
+<div>
+<h3 class="text-sm font-bold tracking-wide text-on-surface uppercase mb-4">效果细节参数</h3>
+<div class="space-y-4">
+<div class="space-y-2">
+<div class="flex justify-between text-[11px] font-bold text-on-surface-variant uppercase tracking-tighter">
+<span>智能降噪强度</span>
+<span class="text-primary">65%</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-primary w-[65%] rounded-full"></div>
+</div>
+</div>
+<div class="space-y-2">
+<div class="flex justify-between text-[11px] font-bold text-on-surface-variant uppercase tracking-tighter">
+<span>色彩饱和增强</span>
+<span class="text-primary">12%</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-primary w-[12%] rounded-full"></div>
+</div>
+</div>
+<div class="space-y-2">
+<div class="flex justify-between text-[11px] font-bold text-on-surface-variant uppercase tracking-tighter">
+<span>细节清晰度</span>
+<span class="text-primary">40%</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-primary w-[40%] rounded-full"></div>
+</div>
+</div>
+</div>
+</div>
+<div class="mt-4 p-4 bg-surface-container-lowest rounded-xl shadow-sm space-y-3">
+<h4 class="text-xs font-bold text-on-surface">输出预测</h4>
+<div class="flex items-center justify-between">
+<span class="text-[11px] text-on-surface-variant">预计总大小</span>
+<span class="text-xs font-bold text-on-surface">~245 MB</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-[11px] text-on-surface-variant">预计处理时间</span>
+<span class="text-xs font-bold text-on-surface">42 秒</span>
+</div>
+<div class="pt-2 border-t border-outline-variant/10">
+<div class="flex items-center gap-2 text-[10px] text-on-surface-variant">
+<span class="material-symbols-outlined text-xs">folder_open</span>
+<span class="truncate">/Users/Work/Desktop/Output</span>
+</div>
+</div>
+</div>
+<div class="mt-auto">
+<div class="p-4 bg-[#2d3338] rounded-xl flex items-center gap-4">
+<div class="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
+<span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">auto_awesome</span>
+</div>
+<div>
+<div class="text-[10px] text-on-secondary-fixed-variant">AI 辅助建议</div>
+<div class="text-xs font-medium text-white">检测到风景样张，建议开启“天空色彩优化”</div>
+</div>
+</div>
+</div>
+</aside>
+</div>
+</body></html>

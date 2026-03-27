@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
+const STEP_SIZE = 0.05; // 每次按键移动的步长
+
 export function ComparisonSlider({
   beforeSrc,
   afterSrc,
@@ -12,6 +14,7 @@ export function ComparisonSlider({
   afterLabel?: string;
 }) {
   const frameRef = useRef<HTMLDivElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
   const [position, setPosition] = useState(0.5);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -40,6 +43,28 @@ export function ComparisonSlider({
       window.removeEventListener("pointerup", handleUp);
     };
   }, [isDragging]);
+
+  // 键盘控制
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    switch (event.key) {
+      case "ArrowLeft":
+        event.preventDefault();
+        setPosition((p) => Math.max(0.05, p - STEP_SIZE));
+        break;
+      case "ArrowRight":
+        event.preventDefault();
+        setPosition((p) => Math.min(0.95, p + STEP_SIZE));
+        break;
+      case "Home":
+        event.preventDefault();
+        setPosition(0.05);
+        break;
+      case "End":
+        event.preventDefault();
+        setPosition(0.95);
+        break;
+    }
+  };
 
   return (
     <div
@@ -71,11 +96,16 @@ export function ComparisonSlider({
         <div className="absolute inset-y-0 left-0 w-0.5 -translate-x-1/2 bg-primary" />
       </div>
       <button
-        className="absolute top-1/2 z-10 flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-primary text-white shadow-lg hover:scale-110 transition-transform"
+        ref={buttonRef}
+        className="absolute top-1/2 z-10 flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-primary text-white shadow-lg hover:scale-110 transition-transform focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
         style={{ left: `${position * 100}%` }}
         type="button"
         onPointerDown={() => setIsDragging(true)}
-        aria-label="拖动滑杆"
+        onKeyDown={handleKeyDown}
+        aria-label="拖动滑杆，使用左右箭头键调整"
+        aria-valuenow={Math.round(position * 100)}
+        aria-valuemin={5}
+        aria-valuemax={95}
       >
         <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
           <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd"/>

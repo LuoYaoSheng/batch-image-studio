@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "primary": "#2e59b9",
+              "on-primary": "#f8f7ff",
+              "outline-variant": "#acb3b8",
+              "surface-container-low": "#f2f4f6",
+              "error-dim": "#4e0309",
+              "tertiary": "#615b77",
+              "primary-dim": "#1d4dac",
+              "primary-container": "#dae2ff",
+              "on-secondary-container": "#515155",
+              "on-surface-variant": "#596065",
+              "on-error-container": "#752121",
+              "surface-container-highest": "#dde3e9",
+              "inverse-surface": "#0c0e10",
+              "on-secondary-fixed-variant": "#5b5b5f",
+              "tertiary-fixed": "#e3dbfd",
+              "on-surface": "#2d3338",
+              "secondary-fixed": "#e4e2e6",
+              "on-tertiary-container": "#524c68",
+              "inverse-on-surface": "#9c9d9f",
+              "on-tertiary-fixed": "#3f3a54",
+              "on-background": "#2d3338",
+              "tertiary-dim": "#554f6b",
+              "primary-fixed-dim": "#c6d3ff",
+              "on-primary-container": "#1c4cab",
+              "on-secondary": "#faf8fc",
+              "outline": "#757c81",
+              "error-container": "#fe8983",
+              "secondary-dim": "#535356",
+              "surface-tint": "#2e59b9",
+              "on-tertiary": "#fcf7ff",
+              "tertiary-fixed-dim": "#d5cdee",
+              "inverse-primary": "#749afe",
+              "secondary-fixed-dim": "#d5d4d8",
+              "surface-container": "#ebeef2",
+              "on-primary-fixed-variant": "#2a56b5",
+              "surface": "#f9f9fb",
+              "primary-fixed": "#dae2ff",
+              "on-tertiary-fixed-variant": "#5b5672",
+              "secondary": "#5f5f62",
+              "on-error": "#fff7f6",
+              "on-secondary-fixed": "#3f3f43",
+              "surface-bright": "#f9f9fb",
+              "error": "#9f403d",
+              "on-primary-fixed": "#003992",
+              "secondary-container": "#e4e2e6",
+              "surface-container-high": "#e4e9ee",
+              "surface-container-lowest": "#ffffff",
+              "background": "#f9f9fb",
+              "tertiary-container": "#e3dbfd",
+              "surface-dim": "#d3dbe2",
+              "surface-variant": "#dde3e9"
+            },
+            fontFamily: {
+              "headline": ["Inter"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        display: inline-block;
+        line-height: 1;
+        text-transform: none;
+        letter-spacing: normal;
+        word-wrap: normal;
+        white-space: nowrap;
+        direction: ltr;
+      }
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .glass-effect { backdrop-filter: blur(12px); }
+    </script>
+</head>
+<body class="bg-background text-on-surface font-body selection:bg-primary-container selection:text-on-primary-container">
+
+    <!-- TopNavBar -->
+    <header class="fixed top-0 w-full z-50 h-12 bg-[#f9f9fb]/80 dark:bg-[#1a1c1e]/80 backdrop-blur-xl border-b border-[#596065]/10 shadow-sm shadow-[#2d3338]/5 flex items-center justify-between px-6 w-full">
+        <div class="flex items-center gap-4">
+            <span class="text-lg font-bold tracking-tight text-[#2d3338] dark:text-[#e2e2e6]">图片批量处理大师</span>
+            <div class="h-4 w-px bg-outline-variant/30 mx-2"></div>
+            <span class="text-sm font-medium text-on-surface-variant">模板构建页 (P02)</span>
+        </div>
+        <div class="flex items-center gap-1">
+            <button class="p-1.5 rounded-md text-[#596065] dark:text-[#909194] hover:bg-[#ebeef2] dark:hover:bg-[#2d3338] transition-colors duration-200 active:scale-95">
+                <span class="material-symbols-outlined text-xl" data-icon="help">help</span>
+            </button>
+            <button class="p-1.5 rounded-md text-[#596065] dark:text-[#909194] hover:bg-[#ebeef2] dark:hover:bg-[#2d3338] transition-colors duration-200 active:scale-95">
+                <span class="material-symbols-outlined text-xl" data-icon="remove">remove</span>
+            </button>
+            <button class="p-1.5 rounded-md text-[#596065] dark:text-[#909194] hover:bg-[#ebeef2] dark:hover:bg-[#2d3338] transition-colors duration-200 active:scale-95">
+                <span class="material-symbols-outlined text-xl" data-icon="fullscreen">fullscreen</span>
+            </button>
+            <button class="p-1.5 rounded-md text-[#596065] dark:text-[#909194] hover:bg-[#ebeef2] dark:hover:bg-[#2d3338] transition-colors duration-200 active:scale-95">
+                <span class="material-symbols-outlined text-xl" data-icon="close">close</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- SideNavBar (Hidden on Template Build Screen as per Task requirements for focused content canvas, but kept as placeholder context) -->
+    <aside class="fixed left-0 top-12 h-[calc(100vh-48px)] w-64 bg-[#ebeef2] dark:bg-[#1a1c1e] flex flex-col py-6 px-4 gap-2 z-40">
+        <div class="mb-4 px-2">
+            <h2 class="text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-1">工作区</h2>
+            <p class="text-[10px] text-on-surface-variant/70">静默生产力</p>
+        </div>
+        <nav class="flex-1 space-y-1">
+            <a href="#" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-all duration-300 ease-in-out hover:translate-x-1 text-[#596065] dark:text-[#909194] hover:bg-[#ffffff]/50 dark:hover:bg-[#2d3338]/50">
+                <span class="material-symbols-outlined" data-icon="home">home</span>
+                首页
+            </a>
+            <a href="#" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-all duration-300 ease-in-out hover:translate-x-1 bg-[#ffffff] dark:bg-[#2d3338] text-[#2e59b9] dark:text-[#adc6ff] border-l-4 border-[#2e59b9] shadow-sm">
+                <span class="material-symbols-outlined" data-icon="dashboard_customize">dashboard_customize</span>
+                模板中心
+            </a>
+            <a href="#" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-all duration-300 ease-in-out hover:translate-x-1 text-[#596065] dark:text-[#909194] hover:bg-[#ffffff]/50 dark:hover:bg-[#2d3338]/50">
+                <span class="material-symbols-outlined" data-icon="history">history</span>
+                历史记录
+            </a>
+            <a href="#" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-all duration-300 ease-in-out hover:translate-x-1 text-[#596065] dark:text-[#909194] hover:bg-[#ffffff]/50 dark:hover:bg-[#2d3338]/50">
+                <span class="material-symbols-outlined" data-icon="settings">settings</span>
+                设置
+            </a>
+        </nav>
+        <div class="mt-auto pt-4 border-t border-outline-variant/10">
+            <a href="#" class="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md text-[#596065] dark:text-[#909194] hover:bg-[#ffffff]/50 transition-all duration-300">
+                <span class="material-symbols-outlined" data-icon="contact_support">contact_support</span>
+                帮助反馈
+            </a>
+        </div>
+    </aside>
+
+    <!-- Main Content Canvas -->
+    <main class="pl-64 pt-12 h-screen flex overflow-hidden">
+        
+        <!-- Left Panel: Images & Regions -->
+        <section class="w-72 flex flex-col bg-surface-container border-r border-outline-variant/10">
+            <!-- Search & List -->
+            <div class="p-4 space-y-4">
+                <div class="relative">
+                    <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg" data-icon="search">search</span>
+                    <input type="text" placeholder="搜索导入的图片..." class="w-full pl-10 pr-4 py-2 bg-surface-container-low border-none rounded-lg text-sm focus:ring-1 focus:ring-primary focus:bg-surface-container-lowest transition-all">
+                </div>
+                
+                <div class="space-y-2 max-h-48 overflow-y-auto no-scrollbar">
+                    <div class="flex items-center gap-3 p-2 rounded-lg bg-surface-container-lowest shadow-sm border-l-4 border-primary">
+                        <div class="w-12 h-12 rounded bg-surface-variant overflow-hidden flex-shrink-0">
+                            <img src="https://images.unsplash.com/photo-1542038784456-1ea8e935640e?q=80&w=200&h=200&auto=format&fit=crop" data-alt="close up of professional DSLR camera lens with subtle reflections and bokeh background" class="w-full h-full object-cover">
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-xs font-semibold truncate">IMG_8291.jpg</p>
+                            <p class="text-[10px] text-on-surface-variant">1920 x 1080</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3 p-2 rounded-lg hover:bg-surface-container-low cursor-pointer transition-colors">
+                        <div class="w-12 h-12 rounded bg-surface-variant overflow-hidden flex-shrink-0">
+                            <img src="https://images.unsplash.com/photo-1493863641943-9b68992a8d07?q=80&w=200&h=200&auto=format&fit=crop" data-alt="urban architectural detail with clean lines and soft daylight" class="w-full h-full object-cover">
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-xs font-medium truncate">DSC_0042.png</p>
+                            <p class="text-[10px] text-on-surface-variant">4032 x 3024</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Regions List -->
+            <div class="flex-1 p-4 flex flex-col min-h-0">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-xs font-bold tracking-wider text-on-surface-variant uppercase">区域列表 (3)</h3>
+                    <button class="flex items-center gap-1 text-[10px] font-bold text-primary hover:underline transition-all">
+                        <span class="material-symbols-outlined text-xs" data-icon="add">add</span>
+                        新增区域
+                    </button>
+                </div>
+                <div class="flex-1 overflow-y-auto space-y-2 no-scrollbar">
+                    <!-- Region Item 1 -->
+                    <div class="p-3 bg-surface-container-lowest rounded-lg border border-outline-variant/10 group cursor-default">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center gap-2">
+                                <span class="w-5 h-5 flex items-center justify-center bg-primary text-on-primary text-[10px] font-bold rounded">1</span>
+                                <span class="text-xs font-semibold">左上角Logo</span>
+                            </div>
+                            <button class="opacity-0 group-hover:opacity-100 transition-opacity">
+                                <span class="material-symbols-outlined text-sm text-on-surface-variant hover:text-error" data-icon="delete">delete</span>
+                            </button>
+                        </div>
+                        <div class="flex gap-2">
+                            <span class="px-2 py-0.5 bg-surface-container text-[9px] font-bold rounded uppercase tracking-tighter text-on-surface-variant">AI 修复</span>
+                            <span class="px-2 py-0.5 bg-surface-container text-[9px] font-bold rounded uppercase tracking-tighter text-on-surface-variant">右下锚定</span>
+                        </div>
+                    </div>
+                    <!-- Region Item 2 -->
+                    <div class="p-3 bg-surface-container-lowest rounded-lg border border-outline-variant/10 group cursor-default ring-1 ring-primary/20">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center gap-2">
+                                <span class="w-5 h-5 flex items-center justify-center bg-primary text-on-primary text-[10px] font-bold rounded">2</span>
+                                <span class="text-xs font-semibold">日期水印</span>
+                            </div>
+                            <button class="opacity-0 group-hover:opacity-100 transition-opacity">
+                                <span class="material-symbols-outlined text-sm text-on-surface-variant hover:text-error" data-icon="delete">delete</span>
+                            </button>
+                        </div>
+                        <div class="flex gap-2">
+                            <span class="px-2 py-0.5 bg-primary-container text-on-primary-container text-[9px] font-bold rounded uppercase tracking-tighter">模糊覆盖</span>
+                            <span class="px-2 py-0.5 bg-surface-container text-[9px] font-bold rounded uppercase tracking-tighter text-on-surface-variant">固定像素</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Center Panel: Preview Area -->
+        <section class="flex-1 relative flex flex-col bg-background p-6">
+            <div class="flex-1 relative bg-surface-container-lowest rounded-xl shadow-inner border border-outline-variant/5 overflow-hidden flex items-center justify-center group">
+                <!-- Main Preview Image -->
+                <div class="relative max-w-[90%] max-h-[90%] shadow-2xl">
+                    <img src="https://images.unsplash.com/photo-1542038784456-1ea8e935640e?q=80&w=1200&auto=format&fit=crop" data-alt="professional camera lens on workspace with elegant ambient lighting and technical aesthetics" class="max-w-full max-h-full block rounded-sm">
+                    
+                    <!-- Rect Selection Visual (Region 2) -->
+                    <div class="absolute bottom-10 right-10 w-48 h-16 border-2 border-primary ring-[50vw] ring-black/40 cursor-move">
+                        <div class="absolute -top-3 -left-3 w-6 h-6 bg-primary rounded-full border-2 border-on-primary flex items-center justify-center text-[10px] font-bold text-on-primary shadow-lg">2</div>
+                        <!-- Resize Handles -->
+                        <div class="absolute -top-1 -left-1 w-2 h-2 bg-on-primary border border-primary"></div>
+                        <div class="absolute -top-1 -right-1 w-2 h-2 bg-on-primary border border-primary"></div>
+                        <div class="absolute -bottom-1 -left-1 w-2 h-2 bg-on-primary border border-primary"></div>
+                        <div class="absolute -bottom-1 -right-1 w-2 h-2 bg-on-primary border border-primary"></div>
+                    </div>
+                </div>
+
+                <!-- Floating Toolbar -->
+                <div class="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-surface-container/90 glass-effect p-1.5 rounded-full shadow-lg border border-outline-variant/10">
+                    <button class="p-2 hover:bg-surface-container-highest rounded-full transition-colors active:scale-95">
+                        <span class="material-symbols-outlined text-on-surface-variant" data-icon="zoom_out">zoom_out</span>
+                    </button>
+                    <span class="text-xs font-bold px-3 text-on-surface">65%</span>
+                    <button class="p-2 hover:bg-surface-container-highest rounded-full transition-colors active:scale-95">
+                        <span class="material-symbols-outlined text-on-surface-variant" data-icon="zoom_in">zoom_in</span>
+                    </button>
+                    <div class="w-px h-4 bg-outline-variant/20 mx-1"></div>
+                    <button class="p-2 hover:bg-surface-container-highest rounded-full transition-colors active:scale-95">
+                        <span class="material-symbols-outlined text-on-surface-variant" data-icon="aspect_ratio">aspect_ratio</span>
+                    </button>
+                    <button class="p-2 hover:bg-surface-container-highest rounded-full transition-colors active:scale-95">
+                        <span class="material-symbols-outlined text-on-surface-variant" data-icon="center_focus_strong">center_focus_strong</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Right Panel: Parameters & Controls -->
+        <section class="w-80 flex flex-col bg-surface-container-low border-l border-outline-variant/10">
+            <!-- Stepper Guide -->
+            <div class="px-6 py-8">
+                <div class="flex flex-col gap-6">
+                    <div class="flex items-start gap-4 opacity-50 grayscale">
+                        <div class="flex flex-col items-center">
+                            <span class="w-6 h-6 flex items-center justify-center rounded-full bg-on-surface-variant text-on-primary text-[10px] font-bold">01</span>
+                            <div class="w-0.5 h-6 bg-on-surface-variant/20 mt-1"></div>
+                        </div>
+                        <div class="pt-0.5">
+                            <p class="text-xs font-bold text-on-surface">框选区域</p>
+                        </div>
+                    </div>
+                    <div class="flex items-start gap-4">
+                        <div class="flex flex-col items-center">
+                            <span class="w-6 h-6 flex items-center justify-center rounded-full bg-primary text-on-primary text-[10px] font-bold">02</span>
+                            <div class="w-0.5 h-6 bg-primary/20 mt-1"></div>
+                        </div>
+                        <div class="pt-0.5">
+                            <p class="text-xs font-bold text-primary">参数配置</p>
+                        </div>
+                    </div>
+                    <div class="flex items-start gap-4 opacity-50 grayscale">
+                        <div class="flex flex-col items-center">
+                            <span class="w-6 h-6 flex items-center justify-center rounded-full bg-on-surface-variant text-on-primary text-[10px] font-bold">03</span>
+                        </div>
+                        <div class="pt-0.5">
+                            <p class="text-xs font-bold text-on-surface">预览与处理</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex-1 px-6 space-y-8 overflow-y-auto no-scrollbar pb-32">
+                <!-- Region Settings -->
+                <div class="space-y-6">
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">模板名称</label>
+                        <input type="text" value="电商详情页除水印模板_A" class="w-full bg-surface-container-lowest border-none rounded-md px-4 py-2.5 text-sm font-medium focus:ring-1 focus:ring-primary shadow-sm">
+                    </div>
+
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">定位方式</label>
+                        <select class="w-full bg-surface-container-lowest border-none rounded-md px-4 py-2.5 text-sm font-medium focus:ring-1 focus:ring-primary shadow-sm appearance-none">
+                            <option>右下角锚定 (默认)</option>
+                            <option>按比例定位</option>
+                            <option>固定像素坐标</option>
+                        </select>
+                    </div>
+
+                    <div class="space-y-3">
+                        <label class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">处理方式</label>
+                        <div class="grid grid-cols-1 gap-2">
+                            <label class="flex items-center justify-between p-3 bg-primary/5 border border-primary/20 rounded-md cursor-pointer group">
+                                <div class="flex items-center gap-3">
+                                    <span class="material-symbols-outlined text-primary" data-icon="auto_fix_high" style="font-variation-settings: 'FILL' 1;">auto_fix_high</span>
+                                    <span class="text-sm font-semibold text-primary">AI 修复 (LaMa)</span>
+                                </div>
+                                <div class="w-4 h-4 rounded-full border-4 border-primary bg-on-primary"></div>
+                                <input type="radio" name="proc_method" checked class="hidden">
+                            </label>
+                            <label class="flex items-center justify-between p-3 bg-surface-container-lowest border border-outline-variant/10 rounded-md cursor-pointer hover:bg-surface-container-high transition-colors">
+                                <div class="flex items-center gap-3">
+                                    <span class="material-symbols-outlined text-on-surface-variant" data-icon="blur_on">blur_on</span>
+                                    <span class="text-sm font-medium">模糊覆盖</span>
+                                </div>
+                                <div class="w-4 h-4 rounded-full border border-outline-variant"></div>
+                                <input type="radio" name="proc_method" class="hidden">
+                            </label>
+                            <label class="flex items-center justify-between p-3 bg-surface-container-lowest border border-outline-variant/10 rounded-md cursor-pointer hover:bg-surface-container-high transition-colors">
+                                <div class="flex items-center gap-3">
+                                    <span class="material-symbols-outlined text-on-surface-variant" data-icon="format_color_fill">format_color_fill</span>
+                                    <span class="text-sm font-medium">纯色填充</span>
+                                </div>
+                                <div class="w-4 h-4 rounded-full border border-outline-variant"></div>
+                                <input type="radio" name="proc_method" class="hidden">
+                            </label>
+                            <label class="flex items-center justify-between p-3 bg-surface-container-lowest border border-outline-variant/10 rounded-md cursor-pointer hover:bg-surface-container-high transition-colors">
+                                <div class="flex items-center gap-3">
+                                    <span class="material-symbols-outlined text-on-surface-variant" data-icon="content_cut">content_cut</span>
+                                    <span class="text-sm font-medium">裁切区域</span>
+                                </div>
+                                <div class="w-4 h-4 rounded-full border border-outline-variant"></div>
+                                <input type="radio" name="proc_method" class="hidden">
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Fixed Footer Actions -->
+            <div class="absolute bottom-0 w-80 p-6 bg-surface-container-low/95 backdrop-blur-md border-t border-outline-variant/10 space-y-3">
+                <div class="grid grid-cols-2 gap-3">
+                    <button class="flex items-center justify-center gap-2 py-2.5 px-4 bg-surface-container-highest text-on-surface text-sm font-bold rounded-md hover:bg-surface-container-high transition-all active:scale-95">
+                        <span class="material-symbols-outlined text-sm" data-icon="save">save</span>
+                        保存模板
+                    </button>
+                    <button class="flex items-center justify-center gap-2 py-2.5 px-4 bg-primary text-on-primary text-sm font-bold rounded-md hover:bg-primary-dim transition-all active:scale-95 shadow-lg shadow-primary/20">
+                        <span class="material-symbols-outlined text-sm" data-icon="visibility">visibility</span>
+                        预览效果
+                    </button>
+                </div>
+                <!-- Action Button State: Weakened because not previewed yet -->
+                <button class="w-full flex items-center justify-center gap-2 py-3 px-4 bg-primary/20 text-primary text-sm font-bold rounded-md cursor-not-allowed border border-primary/20">
+                    <span class="material-symbols-outlined text-sm" data-icon="rocket_launch">rocket_launch</span>
+                    开始批量处理
+                </button>
+                <p class="text-[9px] text-center text-on-surface-variant/60">当前包含 124 张待处理图片</p>
+            </div>
+        </section>
+
+    </main>
+
+</body>
+</html></style></head><body></body></html>
