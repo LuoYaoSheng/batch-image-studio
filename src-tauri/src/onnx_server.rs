@@ -210,6 +210,7 @@ impl OnnxServerManager {
   }
 
   /// 检查服务器是否已就绪
+  #[allow(dead_code)]
   pub fn is_ready(&self) -> bool {
     self.status() == ModelLoadStatus::Loaded
   }

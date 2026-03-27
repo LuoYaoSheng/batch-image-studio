@@ -504,47 +504,7 @@ export default function App() {
     }
   }, [getModelStatus, preloadModel, setModelLoading, setModelLoaded, setModelFailed]);
 
-  // 窗口关闭确认 - 离开页面确认
-  useEffect(() => {
-    if (!isTauriRuntime()) {
-      return;
-    }
-
-    const unlistenRef = { current: (() => {}) as (() => void) | undefined };
-
-    const unlistenPromise = getCurrentWindow()
-      .listen("tauri://close-requested", async () => {
-        const state = useWorkspaceStore.getState();
-        const hasUnsaved =
-          state.importedImages.length > 0 ||
-          state.isTemplateDirty ||
-          state.preview !== null ||
-          state.lastBatchResult !== null;
-        const isBatchRunningState = state.isBatchRunning;
-
-        if (isBatchRunningState) {
-          // 批量处理中 - 警告用户
-          console.warn("批量处理正在进行中，应用即将关闭");
-        } else if (hasUnsaved) {
-          // 有未保存更改 - 警告用户
-          console.warn("有未保存的更改，应用即将关闭");
-        }
-        // 在 Tauri 2.x 中，监听了 close-requested 事件后必须显式关闭窗口
-        getCurrentWindow().close();
-      })
-      .then((unlisten) => {
-        unlistenRef.current = unlisten;
-      })
-      .catch((error) => {
-        console.error("窗口关闭监听失败:", error);
-      });
-
-    return () => {
-      unlistenRef.current?.();
-    };
-  }, []); // 移除依赖项，使用 store.getState() 读取最新状态
-
-
+  // 批量处理进度监听
   useEffect(() => {
     if (!isTauriRuntime()) {
       return;
