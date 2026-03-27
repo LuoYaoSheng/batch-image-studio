@@ -10,6 +10,7 @@ resources/models/**/*.bin
 
 # Local-only prototype references
 stitch/
+stitch 2/
 samples/
 
 # AI coding artifacts
