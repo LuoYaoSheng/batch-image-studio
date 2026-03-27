@@ -529,8 +529,8 @@ export default function App() {
           // 有未保存更改 - 警告用户
           console.warn("有未保存的更改，应用即将关闭");
         }
-        // 注意: Tauri 的 close-requested 事件中无法真正阻止关闭
-        // 这里的日志用于调试，实际需要用户手动保存或确认
+        // 在 Tauri 2.x 中，监听了 close-requested 事件后必须显式关闭窗口
+        getCurrentWindow().close();
       })
       .then((unlisten) => {
         unlistenRef.current = unlisten;
