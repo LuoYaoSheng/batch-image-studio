@@ -59,7 +59,7 @@ export function TemplatePickerDialog({
 
         <div className="mt-5 max-h-[420px] space-y-3 overflow-y-auto pr-1">
           {filtered.length === 0 ? (
-            <div className="rounded-[24px] border border-dashed border-line bg-surface px-4 py-8 text-center text-sm text-muted">
+            <div className="rounded-[24px] border border-dashed border-line bg-surface px-6 py-10 text-center text-sm text-muted">
               当前没有匹配的模板。
             </div>
           ) : (

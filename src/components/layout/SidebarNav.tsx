@@ -45,8 +45,26 @@ export function SidebarNav({
         ))}
       </nav>
 
-      <div className="mt-auto rounded-2xl bg-white px-4 py-4 text-sm text-muted shadow-sm">
-        当前重构阶段先使用 screen 状态驱动页面切换，后续再评估正式路由。
+      <div className="mt-auto rounded-2xl bg-white px-4 py-4 shadow-sm">
+        <p className="text-xs text-muted">快捷键</p>
+        <div className="mt-3 space-y-1.5 text-xs text-muted">
+          <p className="flex items-center justify-between gap-2">
+            <span>首页</span>
+            <kbd className="rounded border border-line bg-surface px-1.5 py-0.5 font-mono">⌘1</kbd>
+          </p>
+          <p className="flex items-center justify-between gap-2">
+            <span>构建</span>
+            <kbd className="rounded border border-line bg-surface px-1.5 py-0.5 font-mono">⌘2</kbd>
+          </p>
+          <p className="flex items-center justify-between gap-2">
+            <span>预览</span>
+            <kbd className="rounded border border-line bg-surface px-1.5 py-0.5 font-mono">⌘3</kbd>
+          </p>
+          <p className="flex items-center justify-between gap-2">
+            <span>批量</span>
+            <kbd className="rounded border border-line bg-surface px-1.5 py-0.5 font-mono">⌘4</kbd>
+          </p>
+        </div>
       </div>
     </aside>
   );

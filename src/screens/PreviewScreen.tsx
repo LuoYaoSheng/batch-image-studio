@@ -40,7 +40,7 @@ export function PreviewScreen({
 }) {
   if (importedImages.length === 0) {
     return (
-      <div className="rounded-[28px] border border-dashed border-line bg-white px-8 py-14 text-center text-sm text-muted">
+      <div className="rounded-[24px] border border-dashed border-line bg-surface px-6 py-10 text-center text-sm text-muted">
         暂无可预览图片，请先导入图片并完成模板构建。
       </div>
     );

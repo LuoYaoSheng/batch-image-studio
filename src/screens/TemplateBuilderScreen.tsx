@@ -120,7 +120,7 @@ export function TemplateBuilderScreen({
             ) : null}
           </div>
           {importedImages.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-line bg-surface px-4 py-8 text-sm text-muted">
+            <div className="rounded-[24px] border border-dashed border-line bg-surface px-6 py-10 text-sm text-muted">
               <p>当前正在编辑模板配置。导入一组样图后，可以继续在画布上调整区域并生成预览。</p>
               <div className="mt-4 flex flex-wrap gap-3">
                 <button
@@ -256,7 +256,7 @@ export function TemplateBuilderScreen({
                 </div>
               </>
             ) : (
-              <div className="rounded-2xl border border-dashed border-line bg-surface px-4 py-6 text-sm text-muted">
+              <div className="rounded-[24px] border border-dashed border-line bg-surface px-6 py-10 text-sm text-muted">
                 当前没有选区，请点击图片重新创建处理区域。
               </div>
             )}
@@ -272,7 +272,7 @@ export function TemplateBuilderScreen({
               ].map((mode) => (
                 <button
                   key={mode.id}
-                  className={`rounded-2xl border px-4 py-3 text-left ${
+                  className={`rounded-xl border px-4 py-3 text-left ${
                     sizeHandlingMode === mode.id
                       ? "border-primary bg-primary/8"
                       : "border-line bg-surface"

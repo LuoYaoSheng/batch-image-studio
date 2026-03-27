@@ -35,3 +35,98 @@ select,
 textarea {
   font: inherit;
 }
+
+/* 统一的输入框焦点样式 */
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: #00488d;
+  box-shadow: 0 0 0 3px rgba(0, 72, 141, 0.15);
+}
+
+input:disabled,
+textarea:disabled,
+select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 输入框错误状态 */
+input[aria-invalid="true"],
+textarea[aria-invalid="true"] {
+  border-color: #efc1c1;
+  background-color: #fff5f5;
+}
+
+input[aria-invalid="true"]:focus,
+textarea[aria-invalid="true"]:focus {
+  box-shadow: 0 0 0 3px rgba(154, 32, 32, 0.15);
+}
+
+/* 自定义滚动条样式 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d9dee8;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #c4c9d4;
+}
+
+/* Firefox 滚动条 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #d9dee8 transparent;
+}
+
+/* 按钮圆角规范 */
+/* Small: rounded-lg (8px) - 紧凑按钮 */
+/* Medium: rounded-xl (12px) - 标准按钮（默认） */
+/* Large: rounded-2xl (16px) - 页面级主要操作、对话框按钮 */
+
+/* 页面切换过渡动画 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 应用到主要内容区域 */
+main {
+  animation: fadeIn 0.25s ease-out;
+}
+
+/* 按钮点击反馈 */
+button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* 加载状态平滑过渡 */
+.opacity-45 {
+  transition: opacity 0.2s ease-out;
+}
+
+/* 进度条动画 */
+@keyframes progressShimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}

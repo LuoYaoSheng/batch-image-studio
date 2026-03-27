@@ -12,7 +12,7 @@ export function HistoryTable({
 }) {
   if (history.length === 0) {
     return (
-      <div className="rounded-[24px] border border-line bg-white px-6 py-10 text-center text-sm text-muted">
+      <div className="rounded-[24px] border border-dashed border-line bg-surface px-6 py-10 text-center text-sm text-muted">
         暂无历史任务，完成一次批量处理后会显示在这里。
       </div>
     );

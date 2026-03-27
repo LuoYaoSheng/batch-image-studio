@@ -71,15 +71,18 @@ export function ComparisonSlider({
         <div className="absolute inset-y-0 left-0 w-0.5 -translate-x-1/2 bg-primary" />
       </div>
       <button
-        className="absolute top-1/2 z-10 flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-primary text-sm font-semibold text-white shadow-lg"
+        className="absolute top-1/2 z-10 flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-primary text-white shadow-lg hover:scale-110 transition-transform"
         style={{ left: `${position * 100}%` }}
         type="button"
         onPointerDown={() => setIsDragging(true)}
+        aria-label="拖动滑杆"
       >
-        <>
-          {"<"}
-          {">"}
-        </>
+        <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+          <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd"/>
+        </svg>
+        <svg className="h-5 w-5 -rotate-180" fill="currentColor" viewBox="0 0 20 20">
+          <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd"/>
+        </svg>
       </button>
     </div>
   );
