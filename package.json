@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test:ui": "playwright test playwright-ui.spec.cjs --reporter=list",
+    "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
   },
