@@ -2,6 +2,21 @@ import { useEffect, useRef, useState } from "react";
 import type { Region } from "../../types";
 import { clampRegion, getContainedRect } from "../../lib/region";
 
+type ResizeMode =
+  | "move"
+  | "resize-n"
+  | "resize-s"
+  | "resize-e"
+  | "resize-w"
+  | "resize-ne"
+  | "resize-nw"
+  | "resize-se"
+  | "resize-sw";
+
+const HANDLE_SIZE = 12;
+const CORNER_HANDLE_SIZE = 16;
+const EDGE_HIT_SIZE = 8;
+
 export function PreviewCanvasCard({
   title,
   image,
@@ -25,6 +40,7 @@ export function PreviewCanvasCard({
 }) {
   const frameRef = useRef<HTMLDivElement | null>(null);
   const [frameSize, setFrameSize] = useState({ width: 0, height: 320 });
+  const [hoveredHandle, setHoveredHandle] = useState<ResizeMode | null>(null);
   const contained = getContainedRect(frameSize, dimensions);
 
   useEffect(() => {
@@ -45,6 +61,21 @@ export function PreviewCanvasCard({
 
     return () => observer.disconnect();
   }, []);
+
+  function getCursorForHandle(mode: ResizeMode | null): string {
+    const cursorMap: Record<ResizeMode, string> = {
+      move: "move",
+      "resize-n": "ns-resize",
+      "resize-s": "ns-resize",
+      "resize-e": "ew-resize",
+      "resize-w": "ew-resize",
+      "resize-ne": "nesw-resize",
+      "resize-nw": "nwse-resize",
+      "resize-se": "nwse-resize",
+      "resize-sw": "nesw-resize",
+    };
+    return mode ? cursorMap[mode] : "crosshair";
+  }
 
   function locatePointer(clientX: number, clientY: number) {
     const frame = frameRef.current;
@@ -96,10 +127,77 @@ export function PreviewCanvasCard({
     onRegionChange(next);
   }
 
-  function startRegionInteraction(
-    event: React.PointerEvent<HTMLDivElement>,
-    mode: "move" | "resize-right" | "resize-bottom" | "resize-corner",
-  ) {
+  function getResizeModeAtPosition(clientX: number, clientY: number): ResizeMode | null {
+    if (!region || !frameRef.current) {
+      return null;
+    }
+
+    const bounds = frameRef.current.getBoundingClientRect();
+    const relativeX = clientX - bounds.left - contained.left;
+    const relativeY = clientY - bounds.top - contained.top;
+
+    const regionLeft = region.x * contained.width;
+    const regionTop = region.y * contained.height;
+    const regionRight = regionLeft + region.width * contained.width;
+    const regionBottom = regionTop + region.height * contained.height;
+
+    const isNear = (value: number, target: number) => Math.abs(value - target) < EDGE_HIT_SIZE;
+
+    // 检查四个角
+    if (isNear(relativeX, regionLeft) && isNear(relativeY, regionTop)) {
+      return "resize-nw";
+    }
+    if (isNear(relativeX, regionRight) && isNear(relativeY, regionTop)) {
+      return "resize-ne";
+    }
+    if (isNear(relativeX, regionLeft) && isNear(relativeY, regionBottom)) {
+      return "resize-sw";
+    }
+    if (isNear(relativeX, regionRight) && isNear(relativeY, regionBottom)) {
+      return "resize-se";
+    }
+
+    // 检查四条边
+    if (isNear(relativeX, regionLeft) && relativeY > regionTop && relativeY < regionBottom) {
+      return "resize-w";
+    }
+    if (isNear(relativeX, regionRight) && relativeY > regionTop && relativeY < regionBottom) {
+      return "resize-e";
+    }
+    if (isNear(relativeY, regionTop) && relativeX > regionLeft && relativeX < regionRight) {
+      return "resize-n";
+    }
+    if (isNear(relativeY, regionBottom) && relativeX > regionLeft && relativeX < regionRight) {
+      return "resize-s";
+    }
+
+    // 检查是否在区域内
+    if (
+      relativeX > regionLeft &&
+      relativeX < regionRight &&
+      relativeY > regionTop &&
+      relativeY < regionBottom
+    ) {
+      return "move";
+    }
+
+    return null;
+  }
+
+  function handleRegionPointerMove(event: React.PointerEvent<HTMLDivElement>) {
+    if (!editable) {
+      return;
+    }
+
+    const mode = getResizeModeAtPosition(event.clientX, event.clientY);
+    setHoveredHandle(mode);
+  }
+
+  function handleRegionPointerLeave() {
+    setHoveredHandle(null);
+  }
+
+  function startRegionInteraction(event: React.PointerEvent<HTMLDivElement>, mode: ResizeMode) {
     if (!editable || !region || !onRegionChange || !frameRef.current) {
       return;
     }
@@ -114,6 +212,7 @@ export function PreviewCanvasCard({
     const onMove = (moveEvent: PointerEvent) => {
       const dx = (moveEvent.clientX - startX) / contained.width;
       const dy = (moveEvent.clientY - startY) / contained.height;
+
       if (mode === "move") {
         onRegionChange(
           clampRegion({
@@ -126,21 +225,42 @@ export function PreviewCanvasCard({
         return;
       }
 
-      const nextWidth =
-        mode === "resize-bottom"
-          ? initialRegion.width
-          : Math.max(0.02, Math.min(1 - initialRegion.x, initialRegion.width + dx));
-      const nextHeight =
-        mode === "resize-right"
-          ? initialRegion.height
-          : Math.max(0.02, Math.min(1 - initialRegion.y, initialRegion.height + dy));
+      // 计算新的区域边界
+      let newX = initialRegion.x;
+      let newY = initialRegion.y;
+      let newWidth = initialRegion.width;
+      let newHeight = initialRegion.height;
+
+      // 向上调整 (n, ne, nw)
+      if (mode === "resize-n" || mode === "resize-ne" || mode === "resize-nw") {
+        const deltaY = Math.min(dy, initialRegion.y); // 不能超出上边界
+        newY = initialRegion.y + deltaY;
+        newHeight = initialRegion.height - deltaY;
+      }
+
+      // 向下调整 (s, se, sw)
+      if (mode === "resize-s" || mode === "resize-se" || mode === "resize-sw") {
+        newHeight = Math.max(0.02, Math.min(1 - initialRegion.y, initialRegion.height + dy));
+      }
+
+      // 向左调整 (w, nw, sw)
+      if (mode === "resize-w" || mode === "resize-nw" || mode === "resize-sw") {
+        const deltaX = Math.min(dx, initialRegion.x); // 不能超出左边界
+        newX = initialRegion.x + deltaX;
+        newWidth = initialRegion.width - deltaX;
+      }
+
+      // 向右调整 (e, ne, se)
+      if (mode === "resize-e" || mode === "resize-ne" || mode === "resize-se") {
+        newWidth = Math.max(0.02, Math.min(1 - initialRegion.x, initialRegion.width + dx));
+      }
 
       onRegionChange(
         clampRegion({
-          x: initialRegion.x,
-          y: initialRegion.y,
-          width: nextWidth,
-          height: nextHeight,
+          x: newX,
+          y: newY,
+          width: newWidth,
+          height: newHeight,
         }),
       );
     };
@@ -172,6 +292,7 @@ export function PreviewCanvasCard({
         className={`relative mt-4 overflow-hidden rounded-[20px] border border-line bg-white ${
           editable ? "cursor-crosshair" : ""
         }`}
+        style={{ cursor: hoveredHandle ? getCursorForHandle(hoveredHandle) : undefined }}
         onPointerDown={handleCanvasPointerDown}
       >
         {image ? (
@@ -187,7 +308,7 @@ export function PreviewCanvasCard({
         )}
         {image && region && selected ? (
           <div
-            className={`absolute border-2 border-primary shadow-[0_0_0_9999px_rgba(0,72,141,0.14)] ${
+            className={`absolute select-none ${
               editable ? "cursor-move" : "pointer-events-none"
             }`}
             style={{
@@ -196,22 +317,70 @@ export function PreviewCanvasCard({
               width: `${region.width * contained.width}px`,
               height: `${region.height * contained.height}px`,
             }}
-            onPointerDown={(event) => startRegionInteraction(event, "move")}
+            onPointerMove={handleRegionPointerMove}
+            onPointerLeave={handleRegionPointerLeave}
+            onPointerDown={(event) => {
+              const mode = getResizeModeAtPosition(event.clientX, event.clientY);
+              if (mode) {
+                startRegionInteraction(event, mode);
+              }
+            }}
           >
+            {/* 遮罩层 */}
+            <div className="absolute inset-0 bg-primary/20 shadow-[0_0_0_9999px_rgba(0,72,141,0.15)]" />
+
+            {/* 边框 */}
+            <div className="absolute inset-0 border-2 border-primary" />
+
+            {/* 四个角手柄 */}
             {editable ? (
               <>
+                {/* 左上角 */}
                 <div
-                  className="absolute -right-1 top-1/2 h-12 w-3 -translate-y-1/2 rounded-full bg-primary/90"
-                  onPointerDown={(event) => startRegionInteraction(event, "resize-right")}
+                  className="absolute -left-1.5 -top-1.5 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-primary shadow-lg cursor-nwse-resize hover:scale-125 transition-transform"
+                  onPointerDown={(event) => startRegionInteraction(event, "resize-nw")}
                 />
+                {/* 右上角 */}
                 <div
-                  className="absolute bottom-0 left-1/2 h-3 w-12 -translate-x-1/2 translate-y-1/2 rounded-full bg-primary/90"
-                  onPointerDown={(event) => startRegionInteraction(event, "resize-bottom")}
+                  className="absolute -right-1.5 -top-1.5 h-4 w-4 translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-primary shadow-lg cursor-nesw-resize hover:scale-125 transition-transform"
+                  onPointerDown={(event) => startRegionInteraction(event, "resize-ne")}
                 />
+                {/* 右下角 */}
                 <div
-                  className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full border-2 border-white bg-primary"
-                  onPointerDown={(event) => startRegionInteraction(event, "resize-corner")}
+                  className="absolute -bottom-1.5 -right-1.5 h-4 w-4 translate-x-1/2 translate-y-1/2 rounded-full border-2 border-white bg-primary shadow-lg cursor-nwse-resize hover:scale-125 transition-transform"
+                  onPointerDown={(event) => startRegionInteraction(event, "resize-se")}
                 />
+                {/* 左下角 */}
+                <div
+                  className="absolute -bottom-1.5 -left-1.5 h-4 w-4 -translate-x-1/2 translate-y-1/2 rounded-full border-2 border-white bg-primary shadow-lg cursor-nesw-resize hover:scale-125 transition-transform"
+                  onPointerDown={(event) => startRegionInteraction(event, "resize-sw")}
+                />
+
+                {/* 四边手柄 */}
+                {/* 上边 */}
+                <div
+                  className="absolute left-1/2 -top-1 h-3 w-8 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/90 cursor-ns-resize hover:bg-primary hover:scale-110 transition-all"
+                  onPointerDown={(event) => startRegionInteraction(event, "resize-n")}
+                />
+                {/* 下边 */}
+                <div
+                  className="absolute left-1/2 -bottom-1 h-3 w-8 -translate-x-1/2 translate-y-1/2 rounded-full bg-primary/90 cursor-ns-resize hover:bg-primary hover:scale-110 transition-all"
+                  onPointerDown={(event) => startRegionInteraction(event, "resize-s")}
+                />
+                {/* 左边 */}
+                <div
+                  className="absolute -left-1 top-1/2 h-8 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/90 cursor-ew-resize hover:bg-primary hover:scale-110 transition-all"
+                  onPointerDown={(event) => startRegionInteraction(event, "resize-w")}
+                />
+                {/* 右边 */}
+                <div
+                  className="absolute -right-1 top-1/2 h-8 w-3 translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/90 cursor-ew-resize hover:bg-primary hover:scale-110 transition-all"
+                  onPointerDown={(event) => startRegionInteraction(event, "resize-e")}
+                />
+
+                {/* 中心十字标记 */}
+                <div className="absolute left-1/2 top-1/2 h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 bg-white/60" />
+                <div className="absolute left-1/2 top-1/2 h-0.5 w-3 -translate-x-1/2 -translate-y-1/2 bg-white/60" />
               </>
             ) : null}
           </div>
@@ -230,7 +399,7 @@ export function PreviewCanvasCard({
       {editable ? (
         <p className="mt-3 text-xs text-muted">
           {region
-            ? "点击预览图可快速定位，拖动蓝色框可移动；右边、下边和右下角手柄可直接缩放区域。"
+            ? "拖动四角或四边手柄可调整大小，拖动框内可移动位置。"
             : "当前没有选区。点击图片可快速创建一个区域，再继续调整。"}
         </p>
       ) : null}

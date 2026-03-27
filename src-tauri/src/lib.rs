@@ -232,15 +232,25 @@ struct ModelLoadState {
   engine: String,
 }
 
+// 模型状态响应（新增）
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ModelStatusResponse {
+  is_loaded: bool,
+  is_loading: bool,
+  is_failed: bool,
+}
+
 #[tauri::command]
-fn preload_model(app: tauri::AppHandle) -> Result<ModelLoadState, String> {
+async fn preload_model(app: tauri::AppHandle) -> Result<ModelLoadState, String> {
   log::info!("收到模型预加载请求");
 
   let server_manager = app.state::<onnx_server::OnnxServerManager>();
   let status = server_manager.status();
 
-  // 如果已经加载，直接返回
+  // 如果已经加载，直接返回并发送完成事件
   if status == onnx_server::ModelLoadStatus::Loaded {
+    let _ = app.emit("model-load:complete", ());
     return Ok(ModelLoadState {
       is_loaded: true,
       is_loading: false,
@@ -262,18 +272,47 @@ fn preload_model(app: tauri::AppHandle) -> Result<ModelLoadState, String> {
     .map_err(|e| e.to_string())?
     .ok_or_else(|| "未找到内置模型文件".to_string())?;
 
+  // 发送初始进度
+  let _ = app.emit("model-load:progress", serde_json::json!({ "progress": 0 }));
+
   // 开始预加载
   match server_manager.preload(&bundled_model.model_path) {
-    Ok(_) => Ok(ModelLoadState {
-      is_loaded: true,
-      is_loading: false,
-      engine: "EmbeddedOnnx".to_string(),
-    }),
+    Ok(_) => {
+      // 发送完成事件
+      let _ = app.emit("model-load:progress", serde_json::json!({ "progress": 100 }));
+      let _ = app.emit("model-load:complete", ());
+      Ok(ModelLoadState {
+        is_loaded: true,
+        is_loading: false,
+        engine: "EmbeddedOnnx".to_string(),
+      })
+    }
     Err(e) => {
       log::error!("模型预加载失败: {}", e);
+      // 发送错误事件
+      let _ = app.emit("model-load:error", serde_json::json!({ "error": e.to_string() }));
       Err(e.to_string())
     }
   }
+}
+
+#[tauri::command]
+fn get_model_status(app: tauri::AppHandle) -> Result<ModelStatusResponse, String> {
+  let server_manager = app.state::<onnx_server::OnnxServerManager>();
+  let status = server_manager.status();
+
+  let (is_loaded, is_loading, is_failed) = match status {
+    onnx_server::ModelLoadStatus::Loaded => (true, false, false),
+    onnx_server::ModelLoadStatus::Loading => (false, true, false),
+    onnx_server::ModelLoadStatus::Failed => (false, false, true),
+    onnx_server::ModelLoadStatus::NotLoaded => (false, false, false),
+  };
+
+  Ok(ModelStatusResponse {
+    is_loaded,
+    is_loading,
+    is_failed,
+  })
 }
 
 #[tauri::command]
@@ -2320,6 +2359,7 @@ pub fn run() {
       cancel_batch_task,
       runtime_status,
       preload_model,
+      get_model_status,
       import_paths,
       start_preview_task,
       start_batch_task,

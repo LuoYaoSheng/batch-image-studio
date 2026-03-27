@@ -4,10 +4,12 @@ import type {
   AppSettings,
   BatchResult,
   CleanupMethod,
+  FileNamingRule,
   HistoryEntry,
   ImportDestination,
   ImportSummary,
   ImportedImage,
+  ModelStatusResponse,
   PreviewResult,
   Region,
   SizeHandlingMode,
@@ -23,6 +25,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   defaultFormat: "png",
   defaultCleanupMethod: "blur",
   defaultSizeHandlingMode: "bottomRight",
+  defaultFileNamingRule: "name_processed",
+  customFileNamingPattern: "",
 };
 
 function computeDoubaoRegion(width: number, height: number): Region {
@@ -160,6 +164,7 @@ type WorkspaceState = {
   lastBatchResult: BatchResult | null;
   isModelLoading: boolean;
   isModelLoaded: boolean;
+  isModelFailed: boolean;
   modelLoadProgress: number;
   setCurrentScreen: (screen: AppScreen) => void;
   setBuilderMode: (mode: "new" | "edit") => void;
@@ -195,7 +200,10 @@ type WorkspaceState = {
   updateAppSettings: (patch: Partial<AppSettings>) => void;
   setModelLoading: (value: boolean) => void;
   setModelLoaded: (value: boolean) => void;
+  setModelFailed: (value: boolean) => void;
   setModelLoadProgress: (value: number) => void;
+  preloadModel: () => Promise<void>;
+  getModelStatus: () => Promise<ModelStatusResponse>;
 };
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
@@ -236,6 +244,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     lastBatchResult: null,
     isModelLoading: false,
     isModelLoaded: false,
+    isModelFailed: false,
     modelLoadProgress: 0,
     setCurrentScreen: (currentScreen) =>
       set((state) => ({
@@ -573,7 +582,78 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         };
       }),
     setModelLoading: (isModelLoading) => set({ isModelLoading }),
-    setModelLoaded: (isModelLoaded) => set({ isModelLoaded }),
+    setModelLoaded: (isModelLoaded) => set({ isModelLoaded, isModelFailed: false, modelLoadProgress: 100 }),
+    setModelFailed: (isModelFailed) => set({ isModelFailed, isModelLoading: false, isModelLoaded: false }),
     setModelLoadProgress: (modelLoadProgress) => set({ modelLoadProgress }),
+    preloadModel: async () => {
+      // 并发保护：如果已在加载中，直接返回
+      const state = get();
+      if (state.isModelLoading || state.isModelLoaded) {
+        return;
+      }
+
+      let invoke: typeof import("@tauri-apps/api/core").invoke;
+      try {
+        const module = await import("@tauri-apps/api/core");
+        invoke = module.invoke;
+      } catch (importError) {
+        const errorMessage = importError instanceof Error ? importError.message : String(importError);
+        set({
+          isModelLoading: false,
+          isModelFailed: true,
+          notification: {
+            kind: "error",
+            message: `Tauri API 不可用: ${errorMessage}`,
+          },
+        });
+        return;
+      }
+
+      try {
+        set({ isModelLoading: true, isModelFailed: false, modelLoadProgress: 0 });
+        await invoke("preload_model");
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        set({
+          isModelLoading: false,
+          isModelFailed: true,
+          notification: {
+            kind: "error",
+            message: `AI 模型加载失败: ${errorMessage}`,
+          },
+        });
+      }
+    },
+    getModelStatus: async () => {
+      let invoke: typeof import("@tauri-apps/api/core").invoke;
+      try {
+        const module = await import("@tauri-apps/api/core");
+        invoke = module.invoke;
+      } catch {
+        console.error("Failed to import Tauri API in getModelStatus");
+        return {
+          isLoaded: false,
+          isLoading: false,
+          isFailed: false,
+        };
+      }
+
+      try {
+        const status = await invoke<ModelStatusResponse>("get_model_status");
+        set({
+          isModelLoaded: status.isLoaded,
+          isModelLoading: status.isLoading,
+          isModelFailed: status.isFailed,
+        });
+        return status;
+      } catch (error) {
+        console.error("Failed to get model status:", error);
+        return {
+          isLoaded: false,
+          isLoading: false,
+          isFailed: false,
+        };
+      }
+    },
   };
 });

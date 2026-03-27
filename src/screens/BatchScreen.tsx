@@ -11,6 +11,7 @@ export function BatchScreen({
   onBackHome,
   onOpenOutputDir,
   onCancelBatch,
+  onSwitchTemplate,
 }: {
   importedImages: ImportedImage[];
   progress: BatchProgressEvent | null;
@@ -21,6 +22,7 @@ export function BatchScreen({
   onBackHome: () => void;
   onOpenOutputDir: () => void;
   onCancelBatch: () => void;
+  onSwitchTemplate?: () => void;
 }) {
   const percent = progress && progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
   const elapsed = startedAt ? Date.now() - startedAt : 0;
@@ -161,6 +163,15 @@ export function BatchScreen({
               >
                 返回首页
               </button>
+              {onSwitchTemplate && !isBatchRunning && (
+                <button
+                  className="w-full rounded-2xl border border-primary bg-primary/6 px-4 py-3 text-sm font-medium text-primary hover:bg-primary/10 transition-colors"
+                  type="button"
+                  onClick={onSwitchTemplate}
+                >
+                  切换模板重新处理
+                </button>
+              )}
             </div>
           </div>
         </div>

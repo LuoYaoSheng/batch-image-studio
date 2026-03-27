@@ -201,6 +201,22 @@ export function TemplateBuilderScreen({
       </section>
 
       <section className="rounded-[28px] border border-line bg-white p-5 shadow-sm">
+        <div className="mb-5 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-ink">模板配置</p>
+            <p className="mt-1 text-xs text-muted">调整处理参数后可保存为新模板</p>
+          </div>
+          <button
+            className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary/90 transition-colors"
+            type="button"
+            onClick={onOpenTemplates}
+          >
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+            </svg>
+            切换模板
+          </button>
+        </div>
         <div className="space-y-5">
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-ink">模板名称</span>
@@ -210,15 +226,6 @@ export function TemplateBuilderScreen({
               value={currentTemplateName}
               onChange={(event) => onSetCurrentTemplateName(event.target.value)}
             />
-            <div className="mt-3">
-              <button
-                className="rounded-xl border border-line bg-surface px-3 py-2 text-xs font-medium"
-                type="button"
-                onClick={onOpenTemplates}
-              >
-                切换模板
-              </button>
-            </div>
           </label>
 
           <div>

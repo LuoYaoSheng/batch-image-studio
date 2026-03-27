@@ -22,6 +22,7 @@ export function PreviewScreen({
   previewStatus,
   loadingMessage,
   onSelectImage,
+  onOpenTemplates,
 }: {
   importedImages: ImportedImage[];
   selectedImageId: string | null;
@@ -35,6 +36,7 @@ export function PreviewScreen({
   previewStatus: string;
   loadingMessage?: string;
   onSelectImage: (id: string) => void;
+  onOpenTemplates?: () => void;
 }) {
   if (importedImages.length === 0) {
     return (
@@ -75,7 +77,21 @@ export function PreviewScreen({
       </section>
 
       <section className="rounded-[28px] border border-line bg-white p-5 shadow-sm">
-        <p className="text-xs uppercase tracking-[0.22em] text-primary-strong">Template Summary</p>
+        <div className="mb-5 flex items-center justify-between">
+          <p className="text-xs uppercase tracking-[0.22em] text-primary-strong">Template Summary</p>
+          {onOpenTemplates && (
+            <button
+              className="flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium hover:bg-white transition-colors"
+              type="button"
+              onClick={onOpenTemplates}
+            >
+              <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+              </svg>
+              切换模板
+            </button>
+          )}
+        </div>
         <div className="mt-5 space-y-4">
           <div className="rounded-[24px] border border-line bg-surface px-4 py-4">
             <p className="text-xs text-muted">模板名称</p>

@@ -1,24 +1,35 @@
 import type { HistoryEntry, Template } from "../types";
 import { formatDateTime, formatRelativeTime, getHistoryTemplateLabel, getTemplateTimestamp } from "../lib/formatting";
+import { ModelStatusIndicator } from "../components/ModelStatusIndicator";
 
 export function HomeScreen({
   templates,
   history,
   isImporting,
+  isModelLoaded,
+  isModelLoading,
+  isModelFailed,
+  modelLoadProgress,
   onImportFiles,
   onImportFolder,
   onOpenTemplates,
   onUseTemplate,
   onOpenHistory,
+  onRetryModelLoad,
 }: {
   templates: Template[];
   history: HistoryEntry[];
   isImporting: boolean;
+  isModelLoaded: boolean;
+  isModelLoading: boolean;
+  isModelFailed: boolean;
+  modelLoadProgress: number;
   onImportFiles: () => void;
   onImportFolder: () => void;
   onOpenTemplates: () => void;
   onUseTemplate: (id: string) => void;
   onOpenHistory: () => void;
+  onRetryModelLoad?: () => void;
 }) {
   const recentTemplates = [...templates]
     .sort((a, b) => {
@@ -31,6 +42,17 @@ export function HomeScreen({
 
   return (
     <div className="mx-auto max-w-7xl space-y-8">
+      {/* 模型状态指示器 */}
+      <div className="flex justify-center">
+        <ModelStatusIndicator
+          isLoaded={isModelLoaded}
+          isLoading={isModelLoading}
+          isFailed={isModelFailed}
+          progress={modelLoadProgress}
+          onRetry={onRetryModelLoad}
+        />
+      </div>
+
       <section className="grid gap-6 xl:grid-cols-[minmax(0,1.6fr)_360px]">
         <div className="rounded-[28px] border border-primary/20 bg-[linear-gradient(180deg,_rgba(0,95,184,0.06),_rgba(255,255,255,0.96))] p-8 shadow-sm">
           <p className="text-sm uppercase tracking-[0.28em] text-primary-strong">Start</p>

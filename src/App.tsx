@@ -5,6 +5,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AppShell } from "./components/layout/AppShell";
 import { DecisionDialog, type DecisionDialogAction } from "./components/layout/DecisionDialog";
+import { StartupScreen } from "./screens/StartupScreen";
 import { BatchScreen } from "./screens/BatchScreen";
 import { HistoryScreen } from "./screens/HistoryScreen";
 import { HomeScreen } from "./screens/HomeScreen";
@@ -22,6 +23,8 @@ import type {
   HistoryEntry,
   ImportSummary,
   ImportedImage,
+  ModelLoadErrorEvent,
+  ModelLoadProgressEvent,
   PreviewCache,
   PreviewCacheEntry,
   PreviewResult,
@@ -89,7 +92,7 @@ type DecisionDialogState = {
 } | null;
 
 type TemplatePickerState = {
-  source: "home" | "builder";
+  source: "home" | "builder" | "preview" | "batch";
 } | null;
 
 const supportedFilters = [
@@ -206,6 +209,7 @@ function getScreenMeta(currentScreen: ReturnType<typeof useWorkspaceStore.getSta
 
 export default function App() {
   const [bootstrapState, setBootstrapState] = useState<BootstrapState | null>(null);
+  const [showStartupScreen, setShowStartupScreen] = useState(true);
   const [dragOverlayState, setDragOverlayState] = useState<DragOverlayState>("idle");
   const [batchProgress, setBatchProgress] = useState<BatchProgressEvent | null>(null);
   const [batchStartedAt, setBatchStartedAt] = useState<number | null>(null);
@@ -257,6 +261,7 @@ export default function App() {
     lastBatchResult,
     isModelLoading,
     isModelLoaded,
+    isModelFailed,
     modelLoadProgress,
     setCurrentScreen,
     setPendingImportDestination,
@@ -290,7 +295,10 @@ export default function App() {
     updateAppSettings,
     setModelLoading,
     setModelLoaded,
+    setModelFailed,
     setModelLoadProgress,
+    preloadModel,
+    getModelStatus,
   } = useWorkspaceStore();
 
   const currentScreen = navigation.currentScreen;
@@ -375,6 +383,167 @@ export default function App() {
         logUi("bootstrap:error", { error: String(error) });
       });
   }, []);
+
+  // 启动页：显示 1.5 秒后自动隐藏，确保快速响应
+  useEffect(() => {
+    const mountedRef = { current: true };
+    const timer = setTimeout(() => {
+      if (mountedRef.current) {
+        setShowStartupScreen(false);
+      }
+    }, 1500);
+    return () => {
+      mountedRef.current = false;
+      clearTimeout(timer);
+    };
+  }, []);
+
+  // 模型加载事件监听
+  useEffect(() => {
+    if (!isTauriRuntime()) {
+      return;
+    }
+
+    const mountedRef = { current: true };
+    const unlistenFns: Array<() => void> = [];
+
+    // 监听模型加载进度
+    listen<ModelLoadProgressEvent>("model-load:progress", (event) => {
+      if (!mountedRef.current) return;
+      setModelLoadProgress(event.payload.progress);
+      setModelLoading(true);
+      setModelFailed(false);
+    })
+      .then((fn) => unlistenFns.push(fn))
+      .catch((error) => {
+        console.error("Failed to listen model-load:progress:", error);
+      });
+
+    // 监听模型加载完成
+    listen("model-load:complete", () => {
+      if (!mountedRef.current) return;
+      setModelLoaded(true);
+      setModelLoading(false);
+      setModelFailed(false);
+      setModelLoadProgress(100);
+      logUi("model:loaded");
+    })
+      .then((fn) => unlistenFns.push(fn))
+      .catch((error) => {
+        console.error("Failed to listen model-load:complete:", error);
+      });
+
+    // 监听模型加载错误
+    listen<ModelLoadErrorEvent>("model-load:error", (event) => {
+      if (!mountedRef.current) return;
+      setModelLoading(false);
+      setModelFailed(true);
+      setModelLoaded(false);
+      setNotification({
+        kind: "error",
+        message: `AI 模型加载失败: ${event.payload.error}`,
+      });
+      logUi("model:error", { error: event.payload.error });
+    })
+      .then((fn) => unlistenFns.push(fn))
+      .catch((error) => {
+        console.error("Failed to listen model-load:error:", error);
+      });
+
+    return () => {
+      mountedRef.current = false;
+      unlistenFns.forEach((fn) => fn());
+    };
+  }, [setModelLoading, setModelLoaded, setModelFailed, setModelLoadProgress, setNotification]);
+
+  // 启动后台模型预加载
+  useEffect(() => {
+    if (!isTauriRuntime() || modelWarmupAttemptedRef.current) {
+      return;
+    }
+
+    modelWarmupAttemptedRef.current = true;
+
+    // 延迟启动模型预加载，避免阻塞启动
+    const startPreload = async () => {
+      try {
+        // 先获取当前状态
+        const status = await getModelStatus();
+        if (status.isLoaded) {
+          setModelLoaded(true);
+          setModelFailed(false);
+          logUi("model:already-loaded");
+          return;
+        }
+
+        if (status.isLoading) {
+          setModelLoading(true);
+          return;
+        }
+
+        // 启动后台预加载
+        logUi("model:preload-start");
+        await preloadModel();
+      } catch (error) {
+        console.error("模型预加载失败:", error);
+      }
+    };
+
+    // 使用 requestIdleCallback 延迟非关键加载
+    const idleCallback = (window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+    }).requestIdleCallback;
+
+    if (typeof idleCallback === "function") {
+      idleCallback(
+        () => startPreload(),
+        { timeout: 3000 } // 3秒超时保证回调一定会被执行
+      );
+    } else {
+      setTimeout(() => startPreload(), 100);
+    }
+  }, [getModelStatus, preloadModel, setModelLoading, setModelLoaded, setModelFailed]);
+
+  // 窗口关闭确认 - 离开页面确认
+  useEffect(() => {
+    if (!isTauriRuntime()) {
+      return;
+    }
+
+    const unlistenRef = { current: (() => {}) as (() => void) | undefined };
+
+    const unlistenPromise = getCurrentWindow()
+      .listen("tauri://close-requested", async () => {
+        const state = useWorkspaceStore.getState();
+        const hasUnsaved =
+          state.importedImages.length > 0 ||
+          state.isTemplateDirty ||
+          state.preview !== null ||
+          state.lastBatchResult !== null;
+        const isBatchRunningState = state.isBatchRunning;
+
+        if (isBatchRunningState) {
+          // 批量处理中 - 警告用户
+          console.warn("批量处理正在进行中，应用即将关闭");
+        } else if (hasUnsaved) {
+          // 有未保存更改 - 警告用户
+          console.warn("有未保存的更改，应用即将关闭");
+        }
+        // 注意: Tauri 的 close-requested 事件中无法真正阻止关闭
+        // 这里的日志用于调试，实际需要用户手动保存或确认
+      })
+      .then((unlisten) => {
+        unlistenRef.current = unlisten;
+      })
+      .catch((error) => {
+        console.error("窗口关闭监听失败:", error);
+      });
+
+    return () => {
+      unlistenRef.current?.();
+    };
+  }, []); // 移除依赖项，使用 store.getState() 读取最新状态
+
 
   useEffect(() => {
     if (!isTauriRuntime()) {
@@ -1036,6 +1205,10 @@ export default function App() {
   }
 
   async function runBatch() {
+    // 确保有模板保存，否则历史记录无法复用
+    if (!ensureTemplateForBatch()) {
+      return;
+    }
     await runBatchForPaths(importedImages.map((item) => item.path));
   }
 
@@ -1058,6 +1231,32 @@ export default function App() {
     } catch (error) {
       setNotification({ kind: "error", message: `取消批量任务失败：${String(error)}` });
     }
+  }
+
+  // 确保有模板保存：如果没有，自动创建临时模板
+  function ensureTemplateForBatch(): boolean {
+    // 如果已有保存的模板 ID，直接返回
+    if (currentTemplateId) {
+      return true;
+    }
+
+    // 没有保存的模板，自动创建临时模板
+    const date = new Date();
+    const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    const timeStr = `${String(date.getHours()).padStart(2, "0")}${String(date.getMinutes()).padStart(2, "0")}`;
+    const tempName = currentTemplateName.trim() || `临时任务 ${dateStr} ${timeStr}`;
+
+    const saved = saveTemplate(tempName);
+    if (!saved) {
+      setNotification({
+        kind: "error",
+        message: "无法创建临时模板，请先配置处理参数。",
+      });
+      return false;
+    }
+
+    // 临时模板已保存，可以继续批量处理
+    return true;
   }
 
   async function openOutputPath(path: string | null | undefined) {
@@ -1409,7 +1608,34 @@ export default function App() {
         <button
           className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-medium"
           type="button"
-          onClick={() => navigateWithGuard("builder")}
+          onClick={() => {
+            // 防抖：如果对话框已经显示，不重复触发
+            if (decisionDialog) {
+              return;
+            }
+            if (preview) {
+              setDecisionDialog({
+                title: "放弃预览？",
+                description: "预览将被放弃，返回调整区域。",
+                cancelAction: {
+                  label: "取消",
+                  tone: "neutral",
+                  onClick: closeDecisionDialog,
+                },
+                primaryAction: {
+                  label: "确认返回",
+                  tone: "danger", // 改为 danger 表示丢失数据的操作
+                  onClick: () => {
+                    clearPreviewState();
+                    setCurrentScreen("builder");
+                    setDecisionDialog(null);
+                  },
+                },
+              });
+            } else {
+              setCurrentScreen("builder");
+            }
+          }}
         >
           返回调整
         </button>
@@ -1493,11 +1719,22 @@ export default function App() {
       templates={templates}
       history={history}
       isImporting={isImporting}
+      isModelLoaded={isModelLoaded}
+      isModelLoading={isModelLoading}
+      isModelFailed={isModelFailed}
+      modelLoadProgress={modelLoadProgress}
       onImportFiles={() => void startImportFlow("files", "builder", "replace")}
       onImportFolder={() => void startImportFlow("folder", "builder", "replace")}
       onOpenTemplates={() => setTemplatePicker({ source: "home" })}
       onUseTemplate={(id) => void handleUseTemplate(id)}
       onOpenHistory={() => setCurrentScreen("history")}
+      onRetryModelLoad={async () => {
+        try {
+          await preloadModel();
+        } catch (error) {
+          console.error("重试模型加载失败:", error);
+        }
+      }}
     />
   );
 
@@ -1579,6 +1816,7 @@ export default function App() {
         previewStatus={previewStatus}
         loadingMessage={selectedPreviewTaskState?.message}
         onSelectImage={handlePreviewSelectImage}
+        onOpenTemplates={() => setTemplatePicker({ source: "preview" })}
       />
     );
   } else if (currentScreen === "batch") {
@@ -1593,6 +1831,7 @@ export default function App() {
         onOpenOutputDir={() => void openOutputPath(lastBatchResult?.outputDir)}
         onCancelBatch={() => void cancelActiveBatchTask()}
         isBatchRunning={isBatchRunning}
+        onSwitchTemplate={() => setTemplatePicker({ source: "batch" })}
       />
     );
   } else if (currentScreen === "templates") {
@@ -1631,10 +1870,16 @@ export default function App() {
   }
 
   return (
-    <div
-      className={dragOverlayState === "hover" ? "ring-4 ring-primary/20" : ""}
-    >
-      {dragOverlayState === "hover" ? (
+    <>
+      {/* 启动页 - 应用启动时显示，快速过渡到主界面 */}
+      {showStartupScreen && <StartupScreen />}
+
+      {/* 主应用界面 */}
+      {!showStartupScreen && (
+        <div
+          className={dragOverlayState === "hover" ? "ring-4 ring-primary/20" : ""}
+        >
+          {dragOverlayState === "hover" ? (
         <div className="pointer-events-none fixed inset-x-0 top-6 z-50 flex justify-center px-6">
           <div className="rounded-full border border-primary/25 bg-white/96 px-5 py-3 shadow-ambient backdrop-blur">
             <div className="flex items-center gap-3">
@@ -1700,6 +1945,8 @@ export default function App() {
           onClose={closeTemplatePicker}
         />
       ) : null}
-    </div>
+        </div>
+      )}
+    </>
   );
 }

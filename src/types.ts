@@ -139,4 +139,64 @@ export type AppSettings = {
   defaultFormat: OutputFormat;
   defaultCleanupMethod: CleanupMethod;
   defaultSizeHandlingMode: SizeHandlingMode;
+  defaultFileNamingRule: FileNamingRule;
+  customFileNamingPattern?: string;
+};
+
+export type FileNamingRule = "name_processed" | "name_cleaned" | "name_timestamp" | "custom";
+
+export function applyFileNamingRule(
+  originalName: string,
+  rule: FileNamingRule,
+  customPattern?: string,
+  index: number = 1
+): string {
+  const lastDotIndex = originalName.lastIndexOf('.');
+  const hasExtension = lastDotIndex > 0;
+  const baseName = hasExtension ? originalName.slice(0, lastDotIndex) : originalName;
+  const ext = hasExtension ? originalName.slice(lastDotIndex) : '';
+
+  const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+
+  switch (rule) {
+    case "name_processed":
+      return `${baseName}_已处理${ext}`;
+    case "name_cleaned":
+      return `${baseName}_去除水印${ext}`;
+    case "name_timestamp":
+      return `${baseName}_${timestamp}${ext}`;
+    case "custom":
+      if (!customPattern?.trim()) {
+        return `${baseName}_已处理${ext}`;
+      }
+      // 清理文件名中的非法字符 (Windows/Linux 文件系统限制)
+      const sanitizedPattern = customPattern
+        .replace(/[<>:"/\\|?*]/g, '_')  // 替换非法字符为下划线
+        .replace(/{name}/g, baseName)
+        .replace(/{timestamp}/g, timestamp)
+        .replace(/{index}/g, String(index));
+      const result = ext && !customPattern.includes('.') ? `${sanitizedPattern}${ext}` : sanitizedPattern;
+      // 确保结果不为空
+      return result.trim() || `${baseName}_已处理${ext}`;
+    default:
+      return `${baseName}_已处理${ext}`;
+  }
+}
+
+// Model loading state types
+// Note: Rust struct uses snake_case (is_loaded), but serde rename_all = "camelCase" handles conversion
+export type ModelLoadStatus = "not-loaded" | "loading" | "loaded" | "failed";
+
+export type ModelStatusResponse = {
+  isLoaded: boolean;
+  isLoading: boolean;
+  isFailed: boolean;
+};
+
+export type ModelLoadProgressEvent = {
+  progress: number;
+};
+
+export type ModelLoadErrorEvent = {
+  error: string;
 };

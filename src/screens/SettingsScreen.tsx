@@ -1,4 +1,8 @@
-import type { AppSettings, CleanupMethod, OutputFormat, SizeHandlingMode } from "../types";
+import type { AppSettings, CleanupMethod, FileNamingRule, OutputFormat, SizeHandlingMode } from "../types";
+import { applyFileNamingRule } from "../types";
+
+// 示例文件名用于预览
+const EXAMPLE_FILES = ["IMG_20260327_001.jpg", "screenshot.png", "photo-2026.webp"];
 
 export function SettingsScreen({
   appSettings,
@@ -9,6 +13,11 @@ export function SettingsScreen({
   onUpdateSettings: (patch: Partial<AppSettings>) => void;
   onChooseDefaultOutputDir: () => void;
 }) {
+  // 生成预览文件名列表
+  const previewFilenames = EXAMPLE_FILES.map((file) =>
+    applyFileNamingRule(file, appSettings.defaultFileNamingRule, appSettings.customFileNamingPattern, 1)
+  );
+
   return (
     <div className="space-y-6">
       <section className="rounded-[28px] border border-line bg-white p-6 shadow-sm">
@@ -72,6 +81,49 @@ export function SettingsScreen({
                 <option value="webp">WEBP</option>
               </select>
             </label>
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-medium text-ink">文件命名规则</span>
+              <select
+                className="h-11 w-full rounded-xl border border-line bg-surface px-3"
+                value={appSettings.defaultFileNamingRule}
+                onChange={(event) =>
+                  onUpdateSettings({ defaultFileNamingRule: event.target.value as FileNamingRule })
+                }
+              >
+                <option value="name_processed">原名_已处理</option>
+                <option value="name_cleaned">原名_去除水印</option>
+                <option value="name_timestamp">原名_[时间戳]</option>
+                <option value="custom">自定义规则</option>
+              </select>
+            </label>
+
+            {appSettings.defaultFileNamingRule === "custom" && (
+              <div className="rounded-xl border border-line bg-surface p-4">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-ink">自定义模式</span>
+                  <span className="mb-1 block text-xs text-muted">
+                    可用变量: {"{name}"}、{"{timestamp}"}、{"{index}"}
+                  </span>
+                  <input
+                    className="mt-2 h-11 w-full rounded-xl border border-line bg-white px-3"
+                    placeholder="{name}_{timestamp}"
+                    value={appSettings.customFileNamingPattern || ""}
+                    onChange={(event) =>
+                      onUpdateSettings({ customFileNamingPattern: event.target.value })
+                    }
+                  />
+                  <div className="mt-2 space-y-1">
+                    <div className="text-xs text-muted">预览效果:</div>
+                    {previewFilenames.map((filename, i) => (
+                      <div key={i} className="text-xs font-mono text-ink bg-surface px-2 py-1 rounded">
+                        {filename}
+                      </div>
+                    ))}
+                  </div>
+                </label>
+              </div>
+            )}
 
             <label className="block">
               <span className="mb-2 block text-sm font-medium text-ink">默认输出目录</span>
