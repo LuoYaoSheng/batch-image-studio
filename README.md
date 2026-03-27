@@ -2,6 +2,17 @@
 
 > 模板驱动的桌面端图片局部批量处理工具
 
+## 📥 下载
+
+| 平台 | 地址 | 说明 |
+|------|------|------|
+| **GitHub** | [Releases](https://github.com/LuoYaoSheng/batch-image-studio/releases) | ✅ 包含完整模型文件（推荐） |
+| **Gitee** | [Releases](https://gitee.com/luoyaosheng/batch-image-studio/releases) | ⚠️ 代码镜像，需手动下载模型 |
+
+> **注意**：Gitee 版本不包含模型文件，请从 [GitHub LFS](https://github.com/LuoYaoSheng/batch-image-studio/tree/main/resources/models) 下载 `resources/models/lama-v1/model.onnx` (约 200MB) 并放到应用目录下。
+
+---
+
 一款基于 Tauri + React + TypeScript 开发的本地批量图片处理工具，使用 LaMa AI 模型实现智能水印去除。
 
 ## ✨ 特性
