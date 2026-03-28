@@ -6,6 +6,7 @@ use std::{
   process::{Child, ChildStdin, ChildStdout, Command, Stdio},
   sync::Mutex,
 };
+use tauri::{AppHandle, Manager};
 
 /// ONNX 服务器管理器 - 保持 Python 进程运行，避免重复加载模型
 pub struct OnnxServer {
@@ -20,7 +21,7 @@ unsafe impl Send for OnnxServer {}
 
 impl OnnxServer {
   /// 创建新的 ONNX 服务器实例
-  pub fn new(model_path: String) -> Result<Self> {
+  pub fn new(app: &AppHandle, model_path: String) -> Result<Self> {
     log::info!("启动 ONNX Python 服务器，模型: {}", model_path);
 
     // 获取服务器脚本路径
@@ -31,10 +32,10 @@ impl OnnxServer {
         .map(|p| p.join("src-tauri").join("scripts").join("lama_server.py"))
         .unwrap_or_else(|| PathBuf::from("src-tauri/scripts/lama_server.py"))
     } else {
-      std::env::current_exe()?
-        .parent()
-        .map(|p| p.join("scripts").join("lama_server.py"))
-        .unwrap_or_else(|| PathBuf::from("scripts/lama_server.py"))
+      app.path()
+        .resource_dir()?
+        .join("scripts")
+        .join("lama_server.py")
     };
 
     if !script_path.exists() {
@@ -162,7 +163,7 @@ impl OnnxServerManager {
   }
 
   /// 预加载模型（不阻塞获取服务器实例）
-  pub fn preload(&self, model_path: &str) -> Result<bool> {
+  pub fn preload(&self, app: &AppHandle, model_path: &str) -> Result<bool> {
     let mut status_guard = self.status.lock().unwrap();
     if *status_guard == ModelLoadStatus::Loaded {
       return Ok(true); // 已加载
@@ -172,7 +173,7 @@ impl OnnxServerManager {
     *status_guard = ModelLoadStatus::Loading;
     drop(status_guard);
 
-    match OnnxServer::new(model_path.to_string()) {
+    match OnnxServer::new(app, model_path.to_string()) {
       Ok(server) => {
         *self.server.lock().unwrap() = Some(server);
         self.set_status(ModelLoadStatus::Loaded);
@@ -188,13 +189,13 @@ impl OnnxServerManager {
   }
 
   /// 获取或创建服务器实例
-  pub fn get_or_create(&self, model_path: &str) -> Result<std::sync::MutexGuard<'_, Option<OnnxServer>>> {
+  pub fn get_or_create(&self, app: &AppHandle, model_path: &str) -> Result<std::sync::MutexGuard<'_, Option<OnnxServer>>> {
     let mut server = self.server.lock().map_err(|_| anyhow!("获取锁失败"))?;
 
     if server.is_none() {
       log::info!("首次启动 ONNX 服务器...");
       self.set_status(ModelLoadStatus::Loading);
-      match OnnxServer::new(model_path.to_string()) {
+      match OnnxServer::new(app, model_path.to_string()) {
         Ok(s) => {
           *server = Some(s);
           self.set_status(ModelLoadStatus::Loaded);

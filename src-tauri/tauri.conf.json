@@ -29,7 +29,8 @@
     "active": true,
     "targets": "all",
     "resources": {
-      "../resources/models/": "models/"
+      "../resources/models/": "models/",
+      "scripts/": "scripts/"
     },
     "icon": [
       "icons/32x32.png",

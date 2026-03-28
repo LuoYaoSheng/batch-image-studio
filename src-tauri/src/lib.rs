@@ -276,7 +276,7 @@ async fn preload_model(app: tauri::AppHandle) -> Result<ModelLoadState, String> 
   let _ = app.emit("model-load:progress", serde_json::json!({ "progress": 0 }));
 
   // 开始预加载
-  match server_manager.preload(&bundled_model.model_path) {
+  match server_manager.preload(&app, &bundled_model.model_path) {
     Ok(_) => {
       // 发送完成事件
       let _ = app.emit("model-load:progress", serde_json::json!({ "progress": 100 }));
@@ -1870,7 +1870,7 @@ fn run_onnx_inpainting(
   let server_manager = app.state::<onnx_server::OnnxServerManager>();
 
   // 获取或创建服务器实例
-  let mut server_guard = server_manager.get_or_create(model_path)?;
+  let mut server_guard = server_manager.get_or_create(app, model_path)?;
   let server = server_guard.as_mut().ok_or_else(|| anyhow!("服务器不可用"))?;
 
   // 使用长驻留服务器处理请求

@@ -78,8 +78,14 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: Batch Image Studio ${{ github.ref_name }}
           releaseBody: |
-            Automated release for ${{ github.ref_name }}.
+            GitHub Releases is the official download channel for Batch Image Studio.
 
-            Download the installer for your platform from the assets below.
+            Installation guide:
+            https://github.com/LuoYaoSheng/batch-image-studio/blob/main/docs/install.md
+
+            Platform notes:
+            - macOS: choose the package that matches your CPU architecture (`aarch64` for Apple Silicon, `x86_64` for Intel).
+            - Windows: download the installer package and allow it in SmartScreen if prompted.
+            - Linux: prefer AppImage for quick start, or `.deb` on Ubuntu/Debian.
           releaseDraft: false
           prerelease: false

@@ -4,12 +4,12 @@
 
 ## 📥 下载
 
-| 平台 | 地址 | 说明 |
+| 渠道 | 地址 | 说明 |
 |------|------|------|
-| **GitHub** | [Releases](https://github.com/LuoYaoSheng/batch-image-studio/releases) | ✅ 包含完整模型文件（推荐） |
-| **Gitee** | [Releases](https://gitee.com/luoyaosheng/batch-image-studio/releases) | ⚠️ 代码镜像，需手动下载模型 |
+| **GitHub Releases** | [下载页面](https://github.com/LuoYaoSheng/batch-image-studio/releases) | ✅ 正式安装包，包含完整模型文件 |
+| **安装说明** | [按平台查看](./docs/install.md) | macOS / Windows / Linux 专属安装步骤 |
 
-> **注意**：Gitee 版本不包含模型文件，请从 [GitHub LFS](https://github.com/LuoYaoSheng/batch-image-studio/tree/main/resources/models) 下载 `resources/models/lama-v1/model.onnx` (约 200MB) 并放到应用目录下。
+> 当前建议统一从 GitHub Releases 下载正式安装包。每个版本都已包含内置 AI 模型，无需额外下载 `model.onnx`。
 
 ---
 
@@ -26,6 +26,11 @@
 - 🔒 **本地处理** - 所有处理在本地完成，保护隐私
 
 ## 🚀 快速开始
+
+### 安装应用
+
+- 普通用户：直接从 [GitHub Releases](https://github.com/LuoYaoSheng/batch-image-studio/releases) 下载
+- 安装步骤：查看 [安装指南](./docs/install.md)
 
 ### 环境要求
 

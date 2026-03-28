@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
 const STEP_SIZE = 0.05; // 每次按键移动的步长
+const MIN_POSITION = 0.05;
+const MAX_POSITION = 0.95;
 
 export function ComparisonSlider({
   beforeSrc,
@@ -18,19 +20,24 @@ export function ComparisonSlider({
   const [position, setPosition] = useState(0.5);
   const [isDragging, setIsDragging] = useState(false);
 
+  const updatePositionFromClientX = (clientX: number) => {
+    const frame = frameRef.current;
+    if (!frame) {
+      return;
+    }
+
+    const bounds = frame.getBoundingClientRect();
+    const ratio = (clientX - bounds.left) / bounds.width;
+    setPosition(Math.max(MIN_POSITION, Math.min(MAX_POSITION, ratio)));
+  };
+
   useEffect(() => {
     if (!isDragging) {
       return;
     }
 
     const handleMove = (event: PointerEvent) => {
-      const frame = frameRef.current;
-      if (!frame) {
-        return;
-      }
-      const bounds = frame.getBoundingClientRect();
-      const ratio = (event.clientX - bounds.left) / bounds.width;
-      setPosition(Math.max(0.05, Math.min(0.95, ratio)));
+      updatePositionFromClientX(event.clientX);
     };
 
     const handleUp = () => setIsDragging(false);
@@ -49,21 +56,27 @@ export function ComparisonSlider({
     switch (event.key) {
       case "ArrowLeft":
         event.preventDefault();
-        setPosition((p) => Math.max(0.05, p - STEP_SIZE));
+        setPosition((p) => Math.max(MIN_POSITION, p - STEP_SIZE));
         break;
       case "ArrowRight":
         event.preventDefault();
-        setPosition((p) => Math.min(0.95, p + STEP_SIZE));
+        setPosition((p) => Math.min(MAX_POSITION, p + STEP_SIZE));
         break;
       case "Home":
         event.preventDefault();
-        setPosition(0.05);
+        setPosition(MIN_POSITION);
         break;
       case "End":
         event.preventDefault();
-        setPosition(0.95);
+        setPosition(MAX_POSITION);
         break;
     }
+  };
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLElement>) => {
+    event.preventDefault();
+    updatePositionFromClientX(event.clientX);
+    setIsDragging(true);
   };
 
   return (
@@ -72,14 +85,22 @@ export function ComparisonSlider({
       className="relative h-[420px] overflow-hidden rounded-[24px] border border-line bg-white shadow-sm"
     >
       {beforeSrc ? (
-        <img alt={beforeLabel} className="absolute inset-0 h-full w-full object-contain" src={beforeSrc} />
+        <img
+          alt={beforeLabel}
+          className="absolute inset-0 h-full w-full select-none object-contain"
+          draggable={false}
+          onDragStart={(event) => event.preventDefault()}
+          src={beforeSrc}
+        />
       ) : (
         <div className="flex h-full items-center justify-center text-sm text-muted">暂无原图</div>
       )}
       {afterSrc ? (
         <img
           alt={afterLabel}
-          className="absolute inset-0 h-full w-full object-contain"
+          className="absolute inset-0 h-full w-full select-none object-contain"
+          draggable={false}
+          onDragStart={(event) => event.preventDefault()}
           src={afterSrc}
           style={{ clipPath: `inset(0 ${100 - position * 100}% 0 0)` }}
         />
@@ -92,15 +113,20 @@ export function ComparisonSlider({
         {afterLabel}
       </div>
 
+      <div
+        className="absolute inset-y-0 z-10 w-8 -translate-x-1/2 cursor-ew-resize touch-none"
+        style={{ left: `${position * 100}%` }}
+        onPointerDown={handlePointerDown}
+      />
       <div className="pointer-events-none absolute inset-y-0" style={{ left: `${position * 100}%` }}>
         <div className="absolute inset-y-0 left-0 w-0.5 -translate-x-1/2 bg-primary" />
       </div>
       <button
         ref={buttonRef}
-        className="absolute top-1/2 z-10 flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-primary text-white shadow-lg hover:scale-110 transition-transform focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+        className="absolute top-1/2 z-20 flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-primary text-white shadow-lg transition-transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 touch-none"
         style={{ left: `${position * 100}%` }}
         type="button"
-        onPointerDown={() => setIsDragging(true)}
+        onPointerDown={handlePointerDown}
         onKeyDown={handleKeyDown}
         aria-label="拖动滑杆，使用左右箭头键调整"
         aria-valuenow={Math.round(position * 100)}
