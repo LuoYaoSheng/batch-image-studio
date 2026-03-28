@@ -9,6 +9,14 @@
 - macOS / Windows / Linux 安装步骤
 - 常见安装问题排查
 
+### [screenshots/](./screenshots/)
+README 展示截图
+
+- 首页界面
+- 模板构建
+- 效果预览
+- 批量执行
+
 ### [prd/](./prd/)
 产品需求文档
 

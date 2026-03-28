@@ -2,6 +2,8 @@
 
 > 模板驱动的桌面端图片局部批量处理工具
 
+![Batch Image Studio 首页预览](./docs/screenshots/home.png)
+
 ## 📥 下载
 
 | 渠道 | 地址 | 说明 |
@@ -24,6 +26,20 @@
 - ⚡ **批量处理** - 支持批量导入和处理图片
 - 📋 **历史记录** - 任务历史和模板复用
 - 🔒 **本地处理** - 所有处理在本地完成，保护隐私
+
+## 🖼️ 界面预览
+
+### 模板构建
+
+![模板构建界面](./docs/screenshots/builder.png)
+
+### 效果预览
+
+![效果预览界面](./docs/screenshots/preview.png)
+
+### 批量执行
+
+![批量执行界面](./docs/screenshots/batch.png)
 
 ## 🚀 快速开始
 
