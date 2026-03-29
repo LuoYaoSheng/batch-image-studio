@@ -1,10 +1,19 @@
 import { create } from "zustand";
+import { getModelRuntimeStatus, preloadModelRuntime } from "../lib/modelRuntime";
+import {
+  createStarterTemplates,
+  loadPersistedHistory,
+  loadPersistedSettings,
+  loadPersistedTemplates,
+  savePersistedHistory,
+  savePersistedSettings,
+  savePersistedTemplates,
+} from "./persistence";
 import type {
   AppScreen,
   AppSettings,
   BatchResult,
   CleanupMethod,
-  FileNamingRule,
   HistoryEntry,
   ImportDestination,
   ImportSummary,
@@ -15,10 +24,8 @@ import type {
   SizeHandlingMode,
   Template,
 } from "../types";
-
-const TEMPLATES_KEY = "batch-image-studio.templates";
-const HISTORY_KEY = "batch-image-studio.history";
-const APP_SETTINGS_KEY = "batch-image-studio.app-settings";
+const DEFAULT_BLUR_SIGMA = 10;
+const DEFAULT_FILL_COLOR = "#f7f9fc";
 
 const DEFAULT_SETTINGS: AppSettings = {
   defaultOutputDir: "",
@@ -44,95 +51,7 @@ function computeDoubaoRegion(width: number, height: number): Region {
   };
 }
 
-function loadArray<T>(key: string): T[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
-  try {
-    const raw = window.localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveArray<T>(key: string, value: T[]) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.localStorage.setItem(key, JSON.stringify(value));
-}
-
-function loadObject<T>(key: string, fallback: T): T {
-  if (typeof window === "undefined") {
-    return fallback;
-  }
-
-  try {
-    const raw = window.localStorage.getItem(key);
-    return raw ? ({ ...fallback, ...(JSON.parse(raw) as Partial<T>) } as T) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function saveObject<T>(key: string, value: T) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.localStorage.setItem(key, JSON.stringify(value));
-}
-
-function hydrateTemplate(template: Template): Template {
-  const now = new Date().toISOString();
-  return {
-    ...template,
-    createdAt: template.createdAt ?? now,
-    updatedAt: template.updatedAt ?? template.createdAt ?? now,
-  };
-}
-
-function createStarterTemplates(): Template[] {
-  const now = new Date().toISOString();
-  return [
-    {
-      id: "starter-right-bottom",
-      name: "右下角小字清理",
-      region: { x: 0.68, y: 0.76, width: 0.22, height: 0.12 },
-      cleanupMethod: "blur",
-      sizeHandlingMode: "bottomRight",
-      blurSigma: 10,
-      fillColor: "#f7f9fc",
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: "starter-bottom-strip",
-      name: "底边横条清理",
-      region: { x: 0.18, y: 0.86, width: 0.64, height: 0.08 },
-      cleanupMethod: "fill",
-      sizeHandlingMode: "relative",
-      blurSigma: 8,
-      fillColor: "#ffffff",
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: "starter-corner-crop",
-      name: "边角裁切模板",
-      region: { x: 0.82, y: 0.84, width: 0.14, height: 0.1 },
-      cleanupMethod: "crop",
-      sizeHandlingMode: "bottomRight",
-      blurSigma: 8,
-      fillColor: "#f7f9fc",
-      createdAt: now,
-      updatedAt: now,
-    },
-  ];
-}
+const DEFAULT_REGION = computeDoubaoRegion(2048, 2048);
 
 type WorkspaceState = {
   navigation: {
@@ -207,11 +126,15 @@ type WorkspaceState = {
 };
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
-  const appSettings = loadObject(APP_SETTINGS_KEY, DEFAULT_SETTINGS);
-  const storedTemplates = loadArray<Template>(TEMPLATES_KEY).map(hydrateTemplate);
+  const appSettings = loadPersistedSettings(DEFAULT_SETTINGS);
+  const storedTemplates = loadPersistedTemplates();
   const templates = storedTemplates.length > 0 ? storedTemplates : createStarterTemplates();
   if (storedTemplates.length === 0) {
-    saveArray(TEMPLATES_KEY, templates);
+    savePersistedTemplates(templates);
+  }
+
+  function getTemplatePreviewImage(state: WorkspaceState) {
+    return state.importedImages.find((item) => item.id === state.selectedImageId)?.path;
   }
 
   return {
@@ -227,16 +150,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     hasRegionSelection: false,
     cleanupMethod: appSettings.defaultCleanupMethod,
     sizeHandlingMode: appSettings.defaultSizeHandlingMode,
-    blurSigma: 10,
-    fillColor: "#f7f9fc",
+    blurSigma: DEFAULT_BLUR_SIGMA,
+    fillColor: DEFAULT_FILL_COLOR,
     outputDir: appSettings.defaultOutputDir,
-    region: computeDoubaoRegion(2048, 2048),
+    region: DEFAULT_REGION,
     importedImages: [],
     selectedImageId: null,
     warnings: [],
     preview: null,
     templates,
-    history: loadArray<HistoryEntry>(HISTORY_KEY),
+    history: loadPersistedHistory(),
     isImporting: false,
     isPreviewLoading: false,
     isBatchRunning: false,
@@ -275,7 +198,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         hasRegionSelection: false,
         cleanupMethod: state.appSettings.defaultCleanupMethod,
         sizeHandlingMode: state.appSettings.defaultSizeHandlingMode,
+        blurSigma: DEFAULT_BLUR_SIGMA,
+        fillColor: DEFAULT_FILL_COLOR,
         outputDir: state.appSettings.defaultOutputDir,
+        region: DEFAULT_REGION,
         preview: null,
         lastBatchResult: null,
         navigation: {
@@ -298,15 +224,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         isTemplateDirty: true,
       }),
     resetCurrentRegionSettings: () =>
-      set({
-        cleanupMethod: "blur",
-        sizeHandlingMode: "bottomRight",
-        blurSigma: 10,
-        fillColor: "#f7f9fc",
+      set((state) => ({
+        cleanupMethod: state.appSettings.defaultCleanupMethod,
+        sizeHandlingMode: state.appSettings.defaultSizeHandlingMode,
+        blurSigma: DEFAULT_BLUR_SIGMA,
+        fillColor: DEFAULT_FILL_COLOR,
         preview: null,
         lastBatchResult: null,
         isTemplateDirty: true,
-      }),
+      })),
     setCleanupMethod: (cleanupMethod) =>
       set({
         cleanupMethod,
@@ -353,7 +279,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       })),
     resetRegionFromImage: (image) =>
       set({
-        region: image ? computeDoubaoRegion(image.width, image.height) : computeDoubaoRegion(2048, 2048),
+        region: image ? computeDoubaoRegion(image.width, image.height) : DEFAULT_REGION,
         hasRegionSelection: true,
         preview: null,
         lastBatchResult: null,
@@ -372,7 +298,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           ? state.region
           : summary.items[0]
             ? computeDoubaoRegion(summary.items[0].width, summary.items[0].height)
-            : computeDoubaoRegion(2048, 2048),
+            : DEFAULT_REGION,
         hasRegionSelection: state.currentTemplateId ? state.hasRegionSelection : summary.items.length > 0,
         cleanupMethod: state.currentTemplateId
           ? state.cleanupMethod
@@ -380,6 +306,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         sizeHandlingMode: state.currentTemplateId
           ? state.sizeHandlingMode
           : state.appSettings.defaultSizeHandlingMode,
+        blurSigma: state.currentTemplateId ? state.blurSigma : DEFAULT_BLUR_SIGMA,
+        fillColor: state.currentTemplateId ? state.fillColor : DEFAULT_FILL_COLOR,
         outputDir: state.outputDir || state.appSettings.defaultOutputDir,
         preview: null,
         lastBatchResult: null,
@@ -451,7 +379,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         isTemplateDirty: false,
         cleanupMethod: state.appSettings.defaultCleanupMethod,
         sizeHandlingMode: state.appSettings.defaultSizeHandlingMode,
+        blurSigma: DEFAULT_BLUR_SIGMA,
+        fillColor: DEFAULT_FILL_COLOR,
         outputDir: state.appSettings.defaultOutputDir,
+        region: DEFAULT_REGION,
         notification: { kind: "info", message: "当前任务已清空，可重新导入图片或文件夹。" },
       })),
     setPreview: (preview) => set({ preview }),
@@ -480,7 +411,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             sizeHandlingMode: state.sizeHandlingMode,
             blurSigma: state.blurSigma,
             fillColor: state.fillColor,
-            previewImage: state.importedImages[0]?.thumbnailDataUrl ?? template.previewImage,
+            previewImage: getTemplatePreviewImage(state) ?? template.previewImage,
             updatedAt: now,
           };
           return savedTemplate;
@@ -497,14 +428,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           sizeHandlingMode: state.sizeHandlingMode,
           blurSigma: state.blurSigma,
           fillColor: state.fillColor,
-          previewImage: state.importedImages[0]?.thumbnailDataUrl,
+          previewImage: getTemplatePreviewImage(state),
           createdAt: now,
           updatedAt: now,
         };
         nextTemplates = [savedTemplate, ...state.templates].slice(0, 24);
       }
 
-      saveArray(TEMPLATES_KEY, nextTemplates);
+      savePersistedTemplates(nextTemplates);
       set({
         templates: nextTemplates,
         currentTemplateId: savedTemplate.id,
@@ -534,7 +465,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           : item,
       );
 
-      saveArray(TEMPLATES_KEY, nextTemplates);
+      savePersistedTemplates(nextTemplates);
       set((state) => ({
         templates: nextTemplates,
         currentTemplateId: template.id,
@@ -556,7 +487,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     deleteTemplate: (id) =>
       set((state) => {
         const nextTemplates = state.templates.filter((item) => item.id !== id);
-        saveArray(TEMPLATES_KEY, nextTemplates);
+        savePersistedTemplates(nextTemplates);
 
         return {
           templates: nextTemplates,
@@ -567,7 +498,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       }),
     addHistory: (entry) => {
       const nextHistory = [entry, ...get().history].slice(0, 50);
-      saveArray(HISTORY_KEY, nextHistory);
+      savePersistedHistory(nextHistory);
       set({ history: nextHistory });
     },
     updateAppSettings: (patch) =>
@@ -576,7 +507,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           ...state.appSettings,
           ...patch,
         };
-        saveObject(APP_SETTINGS_KEY, nextSettings);
+        savePersistedSettings(nextSettings);
         return {
           appSettings: nextSettings,
         };
@@ -592,26 +523,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         return;
       }
 
-      let invoke: typeof import("@tauri-apps/api/core").invoke;
-      try {
-        const module = await import("@tauri-apps/api/core");
-        invoke = module.invoke;
-      } catch (importError) {
-        const errorMessage = importError instanceof Error ? importError.message : String(importError);
-        set({
-          isModelLoading: false,
-          isModelFailed: true,
-          notification: {
-            kind: "error",
-            message: `Tauri API 不可用: ${errorMessage}`,
-          },
-        });
-        return;
-      }
-
       try {
         set({ isModelLoading: true, isModelFailed: false, modelLoadProgress: 0 });
-        await invoke("preload_model");
+        await preloadModelRuntime();
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         set({
@@ -625,21 +539,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       }
     },
     getModelStatus: async () => {
-      let invoke: typeof import("@tauri-apps/api/core").invoke;
       try {
-        const module = await import("@tauri-apps/api/core");
-        invoke = module.invoke;
-      } catch {
-        console.error("Failed to import Tauri API in getModelStatus");
-        return {
-          isLoaded: false,
-          isLoading: false,
-          isFailed: false,
-        };
-      }
-
-      try {
-        const status = await invoke<ModelStatusResponse>("get_model_status");
+        const status = await getModelRuntimeStatus();
         set({
           isModelLoaded: status.isLoaded,
           isModelLoading: status.isLoading,

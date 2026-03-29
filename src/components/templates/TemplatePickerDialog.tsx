@@ -1,11 +1,16 @@
 import { useDeferredValue, useState } from "react";
 import type { Template } from "../../types";
-import { formatRelativeTime, getCleanupMethodLabel, getTemplateTimestamp } from "../../lib/formatting";
+import {
+  formatRelativeTime,
+  getCleanupMethodLabel,
+  getSizeHandlingModeLabel,
+  getTemplateTimestamp,
+} from "../../lib/formatting";
 
 export function TemplatePickerDialog({
   templates,
   title = "选择模板",
-  description = "先选择一个模板，再进入模板构建或继续当前任务。",
+  description = "选一个做法，直接套用到这批图片上。",
   mode = "simple",
   onSelect,
   onApplyToCurrent,
@@ -34,7 +39,7 @@ export function TemplatePickerDialog({
       <div className="w-full max-w-3xl rounded-[28px] border border-line bg-white p-6 shadow-ambient">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.22em] text-primary-strong">Template Picker</p>
+            <p className="text-xs uppercase tracking-[0.22em] text-primary-strong">Quick Pick</p>
             <h3 className="mt-3 text-2xl font-semibold text-ink">{title}</h3>
             <p className="mt-2 text-sm text-muted">{description}</p>
           </div>
@@ -72,7 +77,7 @@ export function TemplatePickerDialog({
                   <div>
                     <p className="text-base font-semibold text-ink">{template.name}</p>
                     <p className="mt-2 text-sm text-muted">
-                      {getCleanupMethodLabel(template.cleanupMethod)} · {template.sizeHandlingMode}
+                      {getCleanupMethodLabel(template.cleanupMethod)} · {getSizeHandlingModeLabel(template.sizeHandlingMode)}
                     </p>
                     <p className="mt-2 text-xs text-muted">
                       最近更新 {formatRelativeTime(getTemplateTimestamp(template))}

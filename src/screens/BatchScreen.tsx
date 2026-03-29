@@ -158,17 +158,22 @@ export function BatchScreen({
         </div>
 
         <div className="space-y-5">
-          <div className="rounded-[28px] border border-line bg-white p-6 shadow-sm">
-            <p className="text-sm font-semibold text-ink">结果摘要</p>
-            <div className="mt-5 space-y-3">
-              <div className="rounded-[24px] border border-line bg-surface px-4 py-4 text-sm text-muted">
-                成功 {result?.successCount ?? progress?.successCount ?? 0} 张
-              </div>
-              <div className="rounded-[24px] border border-line bg-surface px-4 py-4 text-sm text-muted">
-                失败 {result?.failedCount ?? progress?.failedCount ?? 0} 张
-              </div>
+        <div className="rounded-[28px] border border-line bg-white p-6 shadow-sm">
+          <p className="text-sm font-semibold text-ink">结果摘要</p>
+          <div className="mt-5 space-y-3">
+            <div className="rounded-[24px] border border-line bg-surface px-4 py-4 text-sm text-muted">
+              成功 {result?.successCount ?? progress?.successCount ?? 0} 张
+            </div>
+            <div className="rounded-[24px] border border-line bg-surface px-4 py-4 text-sm text-muted">
+              失败 {result?.failedCount ?? progress?.failedCount ?? 0} 张
             </div>
           </div>
+          {failedEntries.length > 0 ? (
+            <div className="mt-4 rounded-[20px] border border-[#f0d8a8] bg-[#fff6df] px-4 py-4 text-sm text-[#8a5b00]">
+              当前有 {failedEntries.length} 张失败。建议先重试失败项；如果失败集中在同一位置或比例，优先切换模板后重跑。
+            </div>
+          ) : null}
+        </div>
 
           <div className="rounded-[28px] border border-line bg-white p-6 shadow-sm">
             <p className="text-sm font-semibold text-ink">批量操作</p>

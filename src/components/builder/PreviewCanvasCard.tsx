@@ -41,6 +41,8 @@ export function PreviewCanvasCard({
   loadingMessage?: string;
 }) {
   const frameRef = useRef<HTMLDivElement | null>(null);
+  const regionChangeFrameRef = useRef<number | null>(null);
+  const pendingRegionChangeRef = useRef<Partial<Region> | Region | null>(null);
   const [frameSize, setFrameSize] = useState({ width: 0, height: 320 });
   const [hoveredHandle, setHoveredHandle] = useState<ResizeMode | null>(null);
   const contained = getContainedRect(frameSize, dimensions);
@@ -63,6 +65,40 @@ export function PreviewCanvasCard({
 
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (regionChangeFrameRef.current !== null) {
+        window.cancelAnimationFrame(regionChangeFrameRef.current);
+      }
+    };
+  }, []);
+
+  function flushQueuedRegionChange() {
+    if (!onRegionChange || !pendingRegionChangeRef.current) {
+      return;
+    }
+
+    const next = pendingRegionChangeRef.current;
+    pendingRegionChangeRef.current = null;
+    onRegionChange(next);
+  }
+
+  function queueRegionChange(next: Partial<Region> | Region) {
+    if (!onRegionChange) {
+      return;
+    }
+
+    pendingRegionChangeRef.current = next;
+    if (regionChangeFrameRef.current !== null) {
+      return;
+    }
+
+    regionChangeFrameRef.current = window.requestAnimationFrame(() => {
+      regionChangeFrameRef.current = null;
+      flushQueuedRegionChange();
+    });
+  }
 
   function getCursorForHandle(mode: ResizeMode | null): string {
     const cursorMap: Record<ResizeMode, string> = {
@@ -216,7 +252,7 @@ export function PreviewCanvasCard({
       const dy = (moveEvent.clientY - startY) / contained.height;
 
       if (mode === "move") {
-        onRegionChange(
+        queueRegionChange(
           clampRegion({
             x: initialRegion.x + dx,
             y: initialRegion.y + dy,
@@ -257,7 +293,7 @@ export function PreviewCanvasCard({
         newWidth = Math.max(0.02, Math.min(1 - initialRegion.x, initialRegion.width + dx));
       }
 
-      onRegionChange(
+      queueRegionChange(
         clampRegion({
           x: newX,
           y: newY,
@@ -268,6 +304,11 @@ export function PreviewCanvasCard({
     };
 
     const onUp = () => {
+      if (regionChangeFrameRef.current !== null) {
+        window.cancelAnimationFrame(regionChangeFrameRef.current);
+        regionChangeFrameRef.current = null;
+      }
+      flushQueuedRegionChange();
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };

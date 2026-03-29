@@ -1,4 +1,4 @@
-import type { CleanupMethod, HistoryEntry, Template } from "../types";
+import type { CleanupMethod, HistoryEntry, SizeHandlingMode, Template } from "../types";
 
 export function formatBytes(value: number) {
   if (value < 1024) {
@@ -64,11 +64,22 @@ export function formatRelativeTime(value?: string) {
 export function getCleanupMethodLabel(method: CleanupMethod) {
   switch (method) {
     case "fill":
-      return "纯色填充";
+      return "直接盖住";
     case "crop":
-      return "裁切";
+      return "裁掉这一块";
     default:
-      return "AI修复";
+      return "智能修复";
+  }
+}
+
+export function getSizeHandlingModeLabel(mode: SizeHandlingMode) {
+  switch (mode) {
+    case "absolute":
+      return "固定位置";
+    case "relative":
+      return "跟随比例";
+    default:
+      return "贴右下角";
   }
 }
 

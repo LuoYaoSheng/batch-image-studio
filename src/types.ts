@@ -145,18 +145,47 @@ export type AppSettings = {
 
 export type FileNamingRule = "name_processed" | "name_cleaned" | "name_timestamp" | "custom";
 
+function splitFileName(originalName: string) {
+  const lastDotIndex = originalName.lastIndexOf(".");
+  const hasExtension = lastDotIndex > 0;
+
+  return {
+    baseName: hasExtension ? originalName.slice(0, lastDotIndex) : originalName,
+    ext: hasExtension ? originalName.slice(lastDotIndex) : "",
+  };
+}
+
+function normalizeOutputExtension(outputFormat?: OutputFormat) {
+  switch (outputFormat) {
+    case "jpg":
+      return ".jpg";
+    case "webp":
+      return ".webp";
+    case "png":
+      return ".png";
+    default:
+      return "";
+  }
+}
+
+function hasFileExtension(value: string) {
+  const trimmed = value.trim();
+  const lastDotIndex = trimmed.lastIndexOf(".");
+  const lastSeparatorIndex = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  return lastDotIndex > lastSeparatorIndex;
+}
+
 export function applyFileNamingRule(
   originalName: string,
   rule: FileNamingRule,
   customPattern?: string,
-  index: number = 1
+  index: number = 1,
+  outputFormat?: OutputFormat
 ): string {
-  const lastDotIndex = originalName.lastIndexOf('.');
-  const hasExtension = lastDotIndex > 0;
-  const baseName = hasExtension ? originalName.slice(0, lastDotIndex) : originalName;
-  const ext = hasExtension ? originalName.slice(lastDotIndex) : '';
+  const { baseName, ext: originalExt } = splitFileName(originalName);
+  const ext = normalizeOutputExtension(outputFormat) || originalExt;
 
-  const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
 
   switch (rule) {
     case "name_processed":
@@ -171,11 +200,11 @@ export function applyFileNamingRule(
       }
       // 清理文件名中的非法字符 (Windows/Linux 文件系统限制)
       const sanitizedPattern = customPattern
-        .replace(/[<>:"/\\|?*]/g, '_')  // 替换非法字符为下划线
+        .replace(/[<>:"/\\|?*]/g, "_")
         .replace(/{name}/g, baseName)
         .replace(/{timestamp}/g, timestamp)
         .replace(/{index}/g, String(index));
-      const result = ext && !customPattern.includes('.') ? `${sanitizedPattern}${ext}` : sanitizedPattern;
+      const result = ext && !hasFileExtension(sanitizedPattern) ? `${sanitizedPattern}${ext}` : sanitizedPattern;
       // 确保结果不为空
       return result.trim() || `${baseName}_已处理${ext}`;
     default:

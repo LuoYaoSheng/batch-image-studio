@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -20,11 +20,13 @@ import type {
   BatchTaskEvent,
   BatchTaskStarted,
   CleanupMethod,
+  FileNamingRule,
   HistoryEntry,
   ImportSummary,
   ImportedImage,
   ModelLoadErrorEvent,
   ModelLoadProgressEvent,
+  OutputFormat,
   PreviewCache,
   PreviewCacheEntry,
   PreviewResult,
@@ -69,6 +71,9 @@ type BatchRequest = {
   blurSigma: number;
   fillColor: string;
   outputDir?: string | null;
+  outputFormat: OutputFormat;
+  fileNamingRule: FileNamingRule;
+  customFileNamingPattern?: string;
   previewCaches: Array<{
     sourcePath: string;
     cachedProcessedPath: string;
@@ -171,38 +176,38 @@ function getScreenMeta(currentScreen: ReturnType<typeof useWorkspaceStore.getSta
   switch (currentScreen) {
     case "builder":
       return {
-        title: "模板构建",
-        subtitle: "在样图上框选区域，配置处理方式并保存模板。",
+        title: "2 调整处理位置",
+        subtitle: "选一张样图，框出要处理的地方，再确认怎么适配这批图片。",
       };
     case "preview":
       return {
-        title: "效果预览",
-        subtitle: "确认样张效果，避免直接批量处理带来风险。",
+        title: "3 确认效果",
+        subtitle: "先看样图是否正确，确认没问题再开始批量处理。",
       };
     case "batch":
       return {
-        title: "批量执行",
-        subtitle: "查看当前任务进度、失败项和输出结果。",
+        title: "4 开始处理",
+        subtitle: "看进度、结果和失败项，必要时只重试失败图片。",
       };
     case "templates":
       return {
-        title: "模板中心",
-        subtitle: "集中管理可复用模板，快速应用到相似图片。",
+        title: "常用做法",
+        subtitle: "把做过一次的处理方法保存下来，下次直接套用。",
       };
     case "history":
       return {
-        title: "历史记录",
-        subtitle: "找到之前做过的任务并再次使用对应模板。",
+        title: "处理记录",
+        subtitle: "查看上次处理结果，快速复用之前的做法。",
       };
     case "settings":
       return {
-        title: "设置",
-        subtitle: "管理默认输出目录、格式和应用级默认项。",
+        title: "默认设置",
+        subtitle: "只放少量常用选项，其他步骤尽量跟着主流程走。",
       };
     default:
       return {
-        title: "首页",
-        subtitle: "从导入开始，完成模板构建、预览与批量处理。",
+        title: "1 导入图片",
+        subtitle: "先导入图片或文件夹，再一步步完成调整、预览和批量处理。",
       };
   }
 }
@@ -333,6 +338,39 @@ export default function App() {
     Boolean(preview) ||
     Boolean(lastBatchResult);
   const hasUnsavedTask = isTemplateDirty || importedImages.length > 0;
+  const canSaveTemplate = Boolean(currentTemplateName.trim()) && hasRegionSelection;
+  const builderPreviewDisabledReason =
+    importedImages.length === 0
+      ? "请先导入一组图片。"
+      : !hasRegionSelection
+        ? "请先在样图上框选处理区域。"
+        : isSelectedImageBusy
+          ? "当前样图正在生成预览，请稍后。"
+          : "";
+  const canOpenPreview = builderPreviewDisabledReason.length === 0;
+  const builderNextActionHint = canOpenPreview
+    ? preview
+      ? "当前样图预览已就绪，可以进入效果确认；如有改动，进入预览后会自动重新检查。"
+      : "先生成一张样图预览，确认效果后再批量处理。"
+    : builderPreviewDisabledReason;
+  const previewCanStartBatch = !isSelectedImageBusy && Boolean(preview) && !isBatchRunning;
+  const previewBatchReadyHint = !selectedImage
+    ? "请先选择一张样图。"
+    : isSelectedImageBusy
+      ? "当前样图正在生成预览，请稍后再开始批量处理。"
+      : !preview
+        ? "当前样图还没有有效预览，请先重新预览。"
+        : isBatchRunning
+          ? "当前已有批量任务在运行。"
+          : "当前样图预览已就绪，可以开始批量处理。";
+  const builderBatchDisabledReason =
+    !preview
+      ? "请先生成并确认当前样图预览。"
+      : !hasRegionSelection
+        ? "请先保留有效选区。"
+        : isBatchRunning
+          ? "当前已有批量任务在运行。"
+          : "";
 
   useEffect(() => {
     selectedImageIdRef.current = selectedImageId;
@@ -865,18 +903,22 @@ export default function App() {
       previewTaskContextByTaskIdRef.current = {};
     }
     const summary = await invoke<ImportSummary>("import_paths", { paths });
-    if (strategy === "append") {
-      appendImportSummary(summary);
-    } else {
-      applyImportSummary(summary);
-    }
-    if (summary.items.length === 0) {
-      return;
-    }
-
     const destination = useWorkspaceStore.getState().navigation.pendingImportDestination;
-    setCurrentScreen(destination);
-    setAutoPreviewOnEnter(destination === "preview");
+
+    startTransition(() => {
+      if (strategy === "append") {
+        appendImportSummary(summary);
+      } else {
+        applyImportSummary(summary);
+      }
+
+      if (summary.items.length === 0) {
+        return;
+      }
+
+      setCurrentScreen(destination);
+      setAutoPreviewOnEnter(destination === "preview");
+    });
   }
 
   async function importWithDialog(mode: "files" | "folder", strategy: "replace" | "append" = "replace") {
@@ -1130,6 +1172,12 @@ export default function App() {
         }),
       ]),
     );
+    const previewCaches = paths
+      .map((path) => {
+        const signature = activeBatchSignatureByPathRef.current[path];
+        return signature ? processedCacheMap[signature] : undefined;
+      })
+      .filter((cache): cache is PreviewCache => Boolean(cache));
 
     try {
       if (!isModelLoaded && !isModelLoading) {
@@ -1148,7 +1196,10 @@ export default function App() {
           blurSigma,
           fillColor,
           outputDir: outputDir || appSettings.defaultOutputDir || null,
-          previewCaches: Object.values(processedCacheMap).map((cache) => ({
+          outputFormat: appSettings.defaultFormat ?? "png",
+          fileNamingRule: appSettings.defaultFileNamingRule ?? "name_processed",
+          customFileNamingPattern: appSettings.customFileNamingPattern?.trim() || undefined,
+          previewCaches: previewCaches.map((cache) => ({
             sourcePath: cache.sourcePath,
             cachedProcessedPath: cache.cachedProcessedPath,
             signature: cache.signature,
@@ -1516,14 +1567,6 @@ export default function App() {
           {importedImages.length > 0 ? "追加文件夹" : "导入文件夹"}
         </button>
         <button
-          className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-medium"
-          type="button"
-          disabled={!currentTemplateName.trim() || !hasRegionSelection}
-          onClick={saveCurrentTemplate}
-        >
-          保存模板
-        </button>
-        <button
           className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-medium disabled:opacity-60"
           type="button"
           disabled={importedImages.length === 0}
@@ -1545,22 +1588,6 @@ export default function App() {
           }
         >
           清空任务
-        </button>
-        <button
-          className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-medium disabled:opacity-60"
-          type="button"
-          disabled={importedImages.length === 0 || !hasRegionSelection || isSelectedImageBusy}
-          onClick={handlePreviewEntry}
-        >
-          预览效果
-        </button>
-        <button
-          className="rounded-2xl bg-primary px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-          type="button"
-          disabled={!preview || !hasRegionSelection || isBatchRunning}
-          onClick={() => void runBatch()}
-        >
-          开始批量处理
         </button>
       </>
     ) : currentScreen === "preview" ? (
@@ -1610,14 +1637,6 @@ export default function App() {
         <button
           className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-medium"
           type="button"
-          disabled={importedImages.length === 0}
-          onClick={saveCurrentTemplate}
-        >
-          保存模板
-        </button>
-        <button
-          className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-medium"
-          type="button"
           onClick={() =>
             setDecisionDialog({
               title: "放弃当前预览？",
@@ -1637,33 +1656,9 @@ export default function App() {
         >
           放弃当前预览
         </button>
-        <button
-          className="rounded-2xl bg-primary px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-          type="button"
-          disabled={!selectedImage || isSelectedImageBusy || isBatchRunning}
-          onClick={() => void runBatch()}
-        >
-          开始批量处理
-        </button>
       </>
     ) : currentScreen === "batch" ? (
       <>
-        <button
-          className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-medium disabled:opacity-60"
-          type="button"
-          disabled={!lastBatchResult?.outputDir}
-          onClick={() => void openOutputPath(lastBatchResult?.outputDir)}
-        >
-          打开输出目录
-        </button>
-        <button
-          className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-medium disabled:opacity-60"
-          type="button"
-          disabled={!lastBatchResult || lastBatchResult.failedCount === 0}
-          onClick={() => void retryFailedOnly()}
-        >
-          仅重试失败项
-        </button>
         <button
           className="rounded-2xl border border-line bg-white px-4 py-2 text-sm font-medium"
           type="button"
@@ -1716,6 +1711,10 @@ export default function App() {
         hasRegionSelection={hasRegionSelection}
         previewReady={Boolean(preview)}
         isPreviewBusy={isSelectedImageBusy}
+        canSaveTemplate={canSaveTemplate}
+        canOpenPreview={canOpenPreview}
+        nextActionLabel={preview ? "查看预览" : "生成预览"}
+        nextActionHint={builderNextActionHint}
         onSelectImage={selectImage}
         onUpdateRegion={updateRegion}
         onSetCleanupMethod={setCleanupMethod}
@@ -1759,10 +1758,11 @@ export default function App() {
         onRemoveSelectedImage={handleRemoveSelectedImage}
         onRemoveImage={handleRemoveImage}
         onOpenTemplates={() => setTemplatePicker({ source: "builder" })}
+        onSaveTemplate={saveCurrentTemplate}
+        onOpenPreview={handlePreviewEntry}
       />
     );
   } else if (currentScreen === "preview") {
-    const canStartBatch = !isSelectedImageBusy && Boolean(preview);
     content = (
       <PreviewScreen
         importedImages={importedImages}
@@ -1776,7 +1776,8 @@ export default function App() {
         sizeHandlingMode={sizeHandlingMode}
         previewStatus={previewStatus}
         loadingMessage={selectedPreviewTaskState?.message}
-        canStartBatch={canStartBatch}
+        canStartBatch={previewCanStartBatch}
+        batchReadyHint={previewBatchReadyHint}
         onSelectImage={handlePreviewSelectImage}
         onOpenTemplates={() => setTemplatePicker({ source: "preview" })}
         onStartBatch={() => void runBatch()}

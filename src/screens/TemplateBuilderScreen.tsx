@@ -26,6 +26,10 @@ export function TemplateBuilderScreen({
   hasRegionSelection,
   previewReady,
   isPreviewBusy,
+  canSaveTemplate,
+  canOpenPreview,
+  nextActionLabel,
+  nextActionHint,
   onSelectImage,
   onUpdateRegion,
   onSetCleanupMethod,
@@ -44,6 +48,8 @@ export function TemplateBuilderScreen({
   onRemoveSelectedImage,
   onRemoveImage,
   onOpenTemplates,
+  onSaveTemplate,
+  onOpenPreview,
 }: {
   importedImages: ImportedImage[];
   selectedImage: ImportedImage | null;
@@ -60,6 +66,10 @@ export function TemplateBuilderScreen({
   hasRegionSelection: boolean;
   previewReady: boolean;
   isPreviewBusy: boolean;
+  canSaveTemplate: boolean;
+  canOpenPreview: boolean;
+  nextActionLabel: string;
+  nextActionHint: string;
   onSelectImage: (id: string) => void;
   onUpdateRegion: (patch: Partial<Region>) => void;
   onSetCleanupMethod: (method: CleanupMethod) => void;
@@ -78,6 +88,8 @@ export function TemplateBuilderScreen({
   onRemoveSelectedImage: () => void;
   onRemoveImage: (id: string) => void;
   onOpenTemplates: () => void;
+  onSaveTemplate: () => void;
+  onOpenPreview: () => void;
 }) {
   return (
     <div className="grid h-full min-h-[720px] grid-cols-[280px_minmax(0,1fr)_360px] gap-5">
@@ -87,7 +99,7 @@ export function TemplateBuilderScreen({
           <div className="mt-4 space-y-3">
             {[
               { title: "Step 1", detail: "选样图并框选区域", active: true },
-              { title: "Step 2", detail: "选择定位方式和处理方式", active: true },
+              { title: "Step 2", detail: "决定怎么适配这批图片", active: true },
               { title: "Step 3", detail: "预览后再开始批量处理", active: previewReady },
             ].map((item) => (
               <div
@@ -222,13 +234,13 @@ export function TemplateBuilderScreen({
       </section>
 
       <section className="rounded-[28px] border border-line bg-white p-5 shadow-sm">
-        <p className="text-sm font-medium text-ink">处理配置</p>
-        <p className="mt-1 text-xs text-muted">调整定位方式和处理参数</p>
+        <p className="text-sm font-medium text-ink">处理方式</p>
+        <p className="mt-1 text-xs text-muted">不确定时先用默认值，再看预览效果。</p>
 
         <div className="mt-4 space-y-4">
           <div>
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-sm font-medium text-ink">区域设置</span>
+              <span className="text-sm font-medium text-ink">处理位置</span>
               <div className="flex gap-1.5">
                 <button
                   className="rounded-lg border border-line bg-surface px-2 py-1 text-xs font-medium"
@@ -261,16 +273,16 @@ export function TemplateBuilderScreen({
           </div>
 
           <div>
-            <span className="mb-2 block text-sm font-medium text-ink">定位与处理</span>
+            <span className="mb-2 block text-sm font-medium text-ink">适配与处理</span>
             <div className="grid grid-cols-2 gap-2">
               {/* 定位方式 */}
               <div className="space-y-1.5">
-                <p className="text-xs text-muted">定位方式</p>
+                <p className="text-xs text-muted">怎么适配不同尺寸</p>
                 <div className="grid grid-cols-3 gap-1">
                   {[
-                    { id: "bottomRight", label: "右下角" },
-                    { id: "relative", label: "比例" },
-                    { id: "absolute", label: "固定" },
+                    { id: "bottomRight", label: "贴右下角" },
+                    { id: "relative", label: "跟随比例" },
+                    { id: "absolute", label: "固定位置" },
                   ].map((mode) => (
                     <button
                       key={mode.id}
@@ -291,12 +303,12 @@ export function TemplateBuilderScreen({
 
               {/* 处理方式 */}
               <div className="space-y-1.5">
-                <p className="text-xs text-muted">处理方式</p>
+                <p className="text-xs text-muted">怎么处理这块内容</p>
                 <div className="grid grid-cols-3 gap-1">
                   {[
-                    { id: "blur", label: "AI修复" },
-                    { id: "fill", label: "填充" },
-                    { id: "crop", label: "裁切" },
+                    { id: "blur", label: "智能修复" },
+                    { id: "fill", label: "直接盖住" },
+                    { id: "crop", label: "裁掉这一块" },
                   ].map((method) => (
                     <button
                       key={method.id}
@@ -379,6 +391,60 @@ export function TemplateBuilderScreen({
               </label>
             </div>
           </details>
+
+          <div className="rounded-[24px] border border-primary/20 bg-[linear-gradient(180deg,_rgba(0,95,184,0.05),_rgba(255,255,255,0.96))] p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-primary-strong">Next Step</p>
+                <p className="mt-2 text-sm font-medium text-ink">完成当前模板后，继续效果确认</p>
+              </div>
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-medium ${
+                  previewReady ? "bg-[#edf7f1] text-success" : "bg-[#fff6df] text-warning"
+                }`}
+              >
+                {previewReady ? "预览已就绪" : "待生成预览"}
+              </span>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-muted">
+              <div className="rounded-xl bg-white/90 px-3 py-2">
+                样图 {selectedImage ? "已选择" : "未选择"}
+              </div>
+              <div className="rounded-xl bg-white/90 px-3 py-2">
+                选区 {hasRegionSelection ? "已完成" : "未完成"}
+              </div>
+              <div className="rounded-xl bg-white/90 px-3 py-2">
+                模板名 {currentTemplateName.trim() ? "已填写" : "建议填写"}
+              </div>
+              <div className="rounded-xl bg-white/90 px-3 py-2">
+                当前状态 {isPreviewBusy ? "处理中" : previewReady ? "可继续" : "待确认"}
+              </div>
+            </div>
+
+            <p className="mt-4 text-xs leading-6 text-muted">{nextActionHint}</p>
+
+            <div className="mt-4 flex gap-3">
+              <button
+                className="flex-1 rounded-2xl bg-primary px-4 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+                type="button"
+                disabled={!canOpenPreview}
+                onClick={onOpenPreview}
+                title={nextActionHint}
+              >
+                {nextActionLabel}
+              </button>
+              <button
+                className="rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
+                type="button"
+                disabled={!canSaveTemplate}
+                onClick={onSaveTemplate}
+                title={canSaveTemplate ? "保存当前模板配置" : "请先填写模板名称并保留选区"}
+              >
+                保存模板
+              </button>
+            </div>
+          </div>
         </div>
       </section>
     </div>

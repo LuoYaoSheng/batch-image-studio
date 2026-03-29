@@ -1,7 +1,7 @@
 import type { ImportedImage, PreviewTaskEvent } from "../types";
 import { ImageSampleList } from "../components/builder/ImageSampleList";
 import { ComparisonSlider } from "../components/preview/ComparisonSlider";
-import { getCleanupMethodLabel } from "../lib/formatting";
+import { getCleanupMethodLabel, getSizeHandlingModeLabel } from "../lib/formatting";
 
 type PreviewTaskState = {
   taskId: string;
@@ -22,6 +22,7 @@ export function PreviewScreen({
   previewStatus,
   loadingMessage,
   canStartBatch,
+  batchReadyHint,
   onSelectImage,
   onOpenTemplates,
   onStartBatch,
@@ -39,6 +40,7 @@ export function PreviewScreen({
   previewStatus: string;
   loadingMessage?: string;
   canStartBatch: boolean;
+  batchReadyHint: string;
   onSelectImage: (id: string) => void;
   onOpenTemplates?: () => void;
   onStartBatch?: () => void;
@@ -74,7 +76,7 @@ export function PreviewScreen({
 
       <section className="space-y-5">
         <div className="rounded-[28px] border border-line bg-white px-5 py-4 shadow-sm">
-          <p className="text-sm font-medium text-ink">当前页面只做效果确认，不再暴露复杂编辑能力。</p>
+          <p className="text-sm font-medium text-ink">这一步只需要看效果，不用再调复杂设置。</p>
           <p className="mt-2 text-xs text-muted">
             {loadingMessage || "拖动中间滑杆查看处理前后差异，确认无误后再开始批量处理。"}
           </p>
@@ -87,6 +89,9 @@ export function PreviewScreen({
             <div>
               <p className="text-sm font-medium text-ink">确认效果无误后开始批量处理</p>
               <p className="mt-1 text-xs text-muted">将处理 {importedImages.length} 张图片</p>
+              <p className={`mt-2 text-xs ${canStartBatch ? "text-success" : "text-warning"}`}>
+                {batchReadyHint}
+              </p>
             </div>
             <div className="flex items-center gap-3">
               {onBackToBuilder && (
@@ -113,6 +118,7 @@ export function PreviewScreen({
                   type="button"
                   disabled={!canStartBatch}
                   onClick={onStartBatch}
+                  title={batchReadyHint}
                 >
                   开始批量处理
                 </button>
@@ -124,7 +130,7 @@ export function PreviewScreen({
 
       <section className="rounded-[28px] border border-line bg-white p-5 shadow-sm">
         <div className="mb-5 flex items-center justify-between">
-          <p className="text-xs uppercase tracking-[0.22em] text-primary-strong">Template Summary</p>
+          <p className="text-xs uppercase tracking-[0.22em] text-primary-strong">Current Setup</p>
           {onOpenTemplates && (
             <button
               className="flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium hover:bg-white transition-colors"
@@ -148,8 +154,8 @@ export function PreviewScreen({
             <p className="mt-2 text-sm font-medium text-ink">{getCleanupMethodLabel(cleanupMethod)}</p>
           </div>
           <div className="rounded-[24px] border border-line bg-surface px-4 py-4">
-            <p className="text-xs text-muted">定位方式</p>
-            <p className="mt-2 text-sm font-medium text-ink">{sizeHandlingMode}</p>
+            <p className="text-xs text-muted">适配方式</p>
+            <p className="mt-2 text-sm font-medium text-ink">{getSizeHandlingModeLabel(sizeHandlingMode)}</p>
           </div>
           <div className="rounded-[24px] border border-line bg-surface px-4 py-4">
             <p className="text-xs text-muted">预览状态</p>

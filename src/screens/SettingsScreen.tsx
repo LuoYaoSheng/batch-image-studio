@@ -15,7 +15,13 @@ export function SettingsScreen({
 }) {
   // 生成预览文件名列表
   const previewFilenames = EXAMPLE_FILES.map((file) =>
-    applyFileNamingRule(file, appSettings.defaultFileNamingRule, appSettings.customFileNamingPattern, 1)
+    applyFileNamingRule(
+      file,
+      appSettings.defaultFileNamingRule,
+      appSettings.customFileNamingPattern,
+      1,
+      appSettings.defaultFormat,
+    )
   );
 
   return (

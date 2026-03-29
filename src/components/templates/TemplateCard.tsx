@@ -1,5 +1,11 @@
 import type { Template } from "../../types";
-import { formatRelativeTime, getCleanupMethodLabel, getTemplateTimestamp } from "../../lib/formatting";
+import {
+  formatRelativeTime,
+  getCleanupMethodLabel,
+  getSizeHandlingModeLabel,
+  getTemplateTimestamp,
+} from "../../lib/formatting";
+import { resolveTemplatePreviewSrc } from "../../lib/templatePreview";
 
 export function TemplateCard({
   template,
@@ -12,23 +18,27 @@ export function TemplateCard({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const previewSrc = resolveTemplatePreviewSrc(template.previewImage);
+
   return (
     <article className="rounded-[24px] border border-line bg-white p-5 shadow-sm">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-lg font-semibold text-ink">{template.name}</p>
           <p className="mt-2 text-sm text-muted">
-            {getCleanupMethodLabel(template.cleanupMethod)} · {template.sizeHandlingMode}
+            {getCleanupMethodLabel(template.cleanupMethod)} · {getSizeHandlingModeLabel(template.sizeHandlingMode)}
           </p>
           <p className="mt-2 text-xs text-muted">
             最近更新 {formatRelativeTime(getTemplateTimestamp(template))}
           </p>
         </div>
-        {template.previewImage ? (
+        {previewSrc ? (
           <img
             alt={template.name}
             className="h-20 w-20 rounded-2xl border border-line object-cover"
-            src={template.previewImage}
+            decoding="async"
+            loading="lazy"
+            src={previewSrc}
           />
         ) : null}
       </div>

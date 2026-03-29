@@ -39,7 +39,9 @@ export function HomeScreen({
     })
     .slice(0, 3);
   const recentHistory = history.slice(0, 5);
-  const isFirstTimeUser = templates.length === 0 && history.length === 0;
+  const hasOnlyStarterTemplates =
+    templates.length > 0 && templates.every((template) => template.id.startsWith("starter-"));
+  const isFirstTimeUser = history.length === 0 && (templates.length === 0 || hasOnlyStarterTemplates);
 
   return (
     <div className="mx-auto max-w-7xl space-y-8">

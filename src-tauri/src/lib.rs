@@ -6,7 +6,8 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use image::{
   codecs::{jpeg::JpegEncoder, png::PngEncoder},
   imageops::{self, FilterType},
-  ColorType, DynamicImage, GenericImageView, GrayImage, ImageEncoder, Luma, Rgba, RgbaImage,
+  ColorType, DynamicImage, GenericImageView, GrayImage, ImageEncoder, ImageFormat, Luma, Rgba,
+  RgbaImage,
 };
 use inpaint::prelude::ImageInpaint;
 use serde::{Deserialize, Serialize};
@@ -20,7 +21,7 @@ use std::{
     Arc, Mutex,
   },
   thread,
-  time::{SystemTime, UNIX_EPOCH},
+  time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{Emitter, Manager};
 use texture_synthesis as ts;
@@ -90,6 +91,9 @@ struct BatchRequest {
   blur_sigma: f32,
   fill_color: String,
   output_dir: Option<String>,
+  output_format: String,
+  file_naming_rule: String,
+  custom_file_naming_pattern: Option<String>,
   preview_caches: Vec<PreviewCache>,
 }
 
@@ -463,6 +467,14 @@ fn encode_jpeg_data_url(image: &DynamicImage, quality: u8) -> Result<String> {
   let mut encoder = JpegEncoder::new_with_quality(&mut bytes, quality);
   encoder.encode(&rgb, width, height, ColorType::Rgb8.into())?;
   Ok(format!("data:image/jpeg;base64,{}", BASE64.encode(bytes)))
+}
+
+fn encode_thumbnail_data_url(image: &DynamicImage) -> Result<String> {
+  if image.color().has_alpha() {
+    return encode_png_data_url(image);
+  }
+
+  encode_jpeg_data_url(image, 76)
 }
 
 fn load_image(path: &Path) -> Result<DynamicImage> {
@@ -1757,9 +1769,167 @@ fn output_directory(requested: Option<String>, first_path: &str) -> Result<PathB
   Ok(output)
 }
 
-fn preview_cache_path(source_path: &str) -> Result<PathBuf> {
-  let temp_dir = std::env::temp_dir().join("batch-image-studio-preview-cache");
+fn prepare_temp_dir(name: &str) -> Result<PathBuf> {
+  let temp_dir = std::env::temp_dir().join(name);
   fs::create_dir_all(&temp_dir)?;
+  prune_temp_dir(&temp_dir, 160, Duration::from_secs(24 * 60 * 60))?;
+  Ok(temp_dir)
+}
+
+fn prune_temp_dir(dir: &Path, keep_latest: usize, max_age: Duration) -> Result<()> {
+  let cutoff = SystemTime::now().checked_sub(max_age).unwrap_or(UNIX_EPOCH);
+  let mut files = fs::read_dir(dir)?
+    .filter_map(|entry| entry.ok())
+    .filter_map(|entry| {
+      let path = entry.path();
+      if !path.is_file() {
+        return None;
+      }
+
+      let modified = entry
+        .metadata()
+        .ok()
+        .and_then(|metadata| metadata.modified().ok())
+        .unwrap_or(UNIX_EPOCH);
+      Some((path, modified))
+    })
+    .collect::<Vec<_>>();
+
+  files.sort_by(|left, right| right.1.cmp(&left.1));
+
+  for (index, (path, modified)) in files.iter().enumerate() {
+    if index >= keep_latest || *modified < cutoff {
+      let _ = fs::remove_file(path);
+    }
+  }
+
+  Ok(())
+}
+
+fn output_extension(output_format: &str) -> Result<&'static str> {
+  match output_format {
+    "png" => Ok("png"),
+    "jpg" => Ok("jpg"),
+    "webp" => Ok("webp"),
+    other => Err(anyhow!("不支持的输出格式: {}", other)),
+  }
+}
+
+fn output_image_format(output_format: &str) -> Result<ImageFormat> {
+  match output_format {
+    "png" => Ok(ImageFormat::Png),
+    "jpg" => Ok(ImageFormat::Jpeg),
+    "webp" => Ok(ImageFormat::WebP),
+    other => Err(anyhow!("不支持的输出格式: {}", other)),
+  }
+}
+
+fn matches_output_format(path: &Path, output_format: &str) -> bool {
+  match output_format {
+    "jpg" => path
+      .extension()
+      .and_then(|ext| ext.to_str())
+      .map(|ext| matches!(ext.to_ascii_lowercase().as_str(), "jpg" | "jpeg"))
+      .unwrap_or(false),
+    "png" | "webp" => path
+      .extension()
+      .and_then(|ext| ext.to_str())
+      .map(|ext| ext.eq_ignore_ascii_case(output_format))
+      .unwrap_or(false),
+    _ => false,
+  }
+}
+
+fn format_timestamp_yyyymmdd() -> Result<String> {
+  let seconds = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64;
+  let days = seconds / 86_400;
+
+  let z = days + 719_468;
+  let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+  let doe = z - era * 146_097;
+  let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+  let y = yoe + era * 400;
+  let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+  let mp = (5 * doy + 2) / 153;
+  let day = doy - (153 * mp + 2) / 5 + 1;
+  let month = mp + if mp < 10 { 3 } else { -9 };
+  let year = y + if month <= 2 { 1 } else { 0 };
+
+  Ok(format!("{year:04}{month:02}{day:02}"))
+}
+
+fn sanitize_file_name_pattern(value: &str) -> String {
+  value
+    .chars()
+    .map(|ch| {
+      if matches!(ch, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') {
+        '_'
+      } else {
+        ch
+      }
+    })
+    .collect()
+}
+
+fn has_file_extension(value: &str) -> bool {
+  Path::new(value).extension().is_some()
+}
+
+fn apply_file_naming_rule(
+  original_name: &str,
+  rule: &str,
+  custom_pattern: Option<&str>,
+  index: usize,
+  output_format: &str,
+) -> Result<String> {
+  let source = Path::new(original_name);
+  let base_name = source
+    .file_stem()
+    .and_then(|name| name.to_str())
+    .unwrap_or("output");
+  let ext = format!(".{}", output_extension(output_format)?);
+  let timestamp = format_timestamp_yyyymmdd()?;
+  let default_name = format!("{base_name}_已处理{ext}");
+
+  let file_name = match rule {
+    "name_processed" => default_name.clone(),
+    "name_cleaned" => format!("{base_name}_去除水印{ext}"),
+    "name_timestamp" => format!("{base_name}_{timestamp}{ext}"),
+    "custom" => {
+      let pattern = custom_pattern.unwrap_or("").trim();
+      if pattern.is_empty() {
+        default_name.clone()
+      } else {
+        let replaced = sanitize_file_name_pattern(pattern)
+          .replace("{name}", base_name)
+          .replace("{timestamp}", &timestamp)
+          .replace("{index}", &index.to_string());
+        let candidate = if has_file_extension(&replaced) {
+          replaced
+        } else {
+          format!("{replaced}{ext}")
+        };
+        if candidate.trim().is_empty() {
+          default_name.clone()
+        } else {
+          candidate
+        }
+      }
+    }
+    _ => default_name.clone(),
+  };
+
+  Ok(file_name)
+}
+
+fn save_processed_output(image: &DynamicImage, output_path: &Path, output_format: &str) -> Result<()> {
+  image
+    .save_with_format(output_path, output_image_format(output_format)?)
+    .with_context(|| format!("无法写入输出文件: {}", output_path.display()))
+}
+
+fn preview_cache_path(source_path: &str) -> Result<PathBuf> {
+  let temp_dir = prepare_temp_dir("batch-image-studio-preview-cache")?;
   let source = Path::new(source_path);
   let stem = source
     .file_stem()
@@ -1776,8 +1946,7 @@ fn preview_cache_path(source_path: &str) -> Result<PathBuf> {
 }
 
 fn preview_transport_path(source_path: &str) -> Result<PathBuf> {
-  let temp_dir = std::env::temp_dir().join("batch-image-studio-preview-render");
-  fs::create_dir_all(&temp_dir)?;
+  let temp_dir = prepare_temp_dir("batch-image-studio-preview-render")?;
   let source = Path::new(source_path);
   let stem = source
     .file_stem()
@@ -1846,8 +2015,7 @@ fn run_onnx_inpainting(
   log::info!("run_onnx_inpainting: 使用 Python ONNX Server");
 
   // 创建临时目录
-  let temp_dir = std::env::temp_dir().join("lama_inpaint");
-  fs::create_dir_all(&temp_dir)
+  let temp_dir = prepare_temp_dir("lama_inpaint")
     .with_context(|| "无法创建临时目录")?;
 
   // 生成唯一的文件名
@@ -1891,12 +2059,13 @@ fn run_onnx_inpainting(
   Ok(result)
 }
 
-fn build_unique_output_path(output_dir: &Path, source_path: &Path) -> PathBuf {
-  let stem = source_path
+fn build_unique_output_path(output_dir: &Path, source_path: &Path, target_file_name: &str) -> PathBuf {
+  let target_path = Path::new(target_file_name);
+  let stem = target_path
     .file_stem()
     .and_then(|name| name.to_str())
     .unwrap_or("output");
-  let ext = source_path
+  let ext = target_path
     .extension()
     .and_then(|name| name.to_str())
     .unwrap_or("png");
@@ -1940,9 +2109,9 @@ fn import_paths(paths: Vec<String>) -> Result<ImportSummary, String> {
     match load_image(&path) {
       Ok(image) => {
         let metadata = fs::metadata(&path).map_err(|err| err.to_string())?;
-        let thumbnail = image.thumbnail(280, 280);
+        let thumbnail = image.thumbnail(160, 160);
         let thumbnail_data_url =
-          encode_png_data_url(&thumbnail).map_err(|err| err.to_string())?;
+          encode_thumbnail_data_url(&thumbnail).map_err(|err| err.to_string())?;
         let extension = path
           .extension()
           .and_then(|ext| ext.to_str())
@@ -2182,7 +2351,15 @@ fn run_batch_cleanup(
     }
 
     let path = PathBuf::from(&source_path);
-    let output_path = build_unique_output_path(&output_dir, &path);
+    let target_file_name = apply_file_naming_rule(
+      path.file_name().and_then(|name| name.to_str()).unwrap_or("output"),
+      &request.file_naming_rule,
+      request.custom_file_naming_pattern.as_deref(),
+      index + 1,
+      &request.output_format,
+    )
+    .map_err(|err| err.to_string())?;
+    let output_path = build_unique_output_path(&output_dir, &path, &target_file_name);
     let item_started = std::time::Instant::now();
     log::info!(
       "批处理开始第 {}/{} 张: {}",
@@ -2201,7 +2378,12 @@ fn run_batch_cleanup(
             source_path,
             cached_processed_path
           );
-          fs::copy(cached_processed_path, &output_path)?;
+          if matches_output_format(Path::new(cached_processed_path), &request.output_format) {
+            fs::copy(cached_processed_path, &output_path)?;
+          } else {
+            let cached_image = load_image(Path::new(cached_processed_path))?;
+            save_processed_output(&cached_image, &output_path, &request.output_format)?;
+          }
           return Ok(Some(cached_processed_path.clone()));
         }
       }
@@ -2221,7 +2403,7 @@ fn run_batch_cleanup(
       )?;
       let cached_processed_path = preview_cache_path(&source_path)?;
       processed.save(&cached_processed_path)?;
-      processed.save(&output_path)?;
+      save_processed_output(&processed, &output_path, &request.output_format)?;
       log::info!(
         "批处理写入处理缓存第 {}/{} 张: {}",
         index + 1,
