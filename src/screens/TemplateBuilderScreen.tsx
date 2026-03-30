@@ -93,7 +93,7 @@ export function TemplateBuilderScreen({
 }) {
   return (
     <div className="grid h-full min-h-0 gap-4">
-      <div className="grid min-h-0 grid-cols-[220px_minmax(0,1fr)_308px] gap-4">
+      <div className="grid min-h-0 grid-cols-[212px_minmax(0,1fr)_264px] gap-4">
         <section className="min-h-0 rounded-[28px] border border-line bg-white p-5 shadow-sm">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -111,7 +111,7 @@ export function TemplateBuilderScreen({
             ) : null}
           </div>
 
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-4 flex flex-col gap-2">
             <button
               className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white"
               type="button"
@@ -133,7 +133,7 @@ export function TemplateBuilderScreen({
               先导入一组图片，再在中间选一张作为参考图。
             </div>
           ) : (
-              <div className="mt-4 max-h-[calc(100vh-340px)] overflow-y-auto pr-1">
+              <div className="mt-4 max-h-[calc(100vh-320px)] overflow-y-auto pr-1">
                 <ImageSampleList
                   items={importedImages}
                   selectedImageId={selectedImageId}
@@ -146,19 +146,19 @@ export function TemplateBuilderScreen({
         </section>
 
         <section className="min-w-0 grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-4">
-          <div className="rounded-[28px] border border-line bg-white px-5 py-4 shadow-sm">
+          <div className="rounded-[28px] border border-line bg-white px-5 py-3.5 shadow-sm">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0 flex-1">
                 <label className="block">
                   <span className="mb-1 block text-xs text-muted">模板名称</span>
                   <input
-                    className="h-10 w-full max-w-sm rounded-xl border border-line bg-surface px-3 text-sm"
+                    className="h-9 w-full max-w-sm rounded-xl border border-line bg-surface px-3 text-sm"
                     placeholder="例如：右下角小字清理"
                     value={currentTemplateName}
                     onChange={(event) => onSetCurrentTemplateName(event.target.value)}
                   />
                 </label>
-                <p className="mt-3 text-sm font-medium text-ink">{selectedImage?.name ?? "未选择样图"}</p>
+                <p className="mt-2.5 text-sm font-medium text-ink">{selectedImage?.name ?? "未选择样图"}</p>
                 <p className="mt-1 text-xs text-muted">
                   把这张图当作参考图，在下方直接框出你想处理的区域。
                 </p>
@@ -202,6 +202,7 @@ export function TemplateBuilderScreen({
             image={selectedImage?.thumbnailDataUrl ?? null}
             region={hasRegionSelection ? region : undefined}
             selected={Boolean(selectedImage)}
+            frameHeight={396}
             editable
             onRegionChange={onUpdateRegion}
             dimensions={selectedImage ? { width: selectedImage.width, height: selectedImage.height } : undefined}
@@ -228,7 +229,7 @@ export function TemplateBuilderScreen({
                   保存模板
                 </button>
                 <button
-                  className="inline-flex items-center gap-2 rounded-2xl bg-primary px-6 py-3.5 text-sm font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex min-w-[180px] items-center justify-center gap-2 rounded-2xl bg-primary px-6 py-3.5 text-sm font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
                   type="button"
                   disabled={!canOpenPreview}
                   onClick={onOpenPreview}
@@ -245,7 +246,6 @@ export function TemplateBuilderScreen({
             <div className="mt-4 flex flex-wrap gap-2 text-xs text-muted">
               <span className="rounded-full bg-white px-3 py-2">样图 {selectedImage ? "已选择" : "未选择"}</span>
               <span className="rounded-full bg-white px-3 py-2">选区 {hasRegionSelection ? "已完成" : "未完成"}</span>
-              <span className="rounded-full bg-white px-3 py-2">模板名 {currentTemplateName.trim() ? "已填写" : "建议填写"}</span>
               <span className="rounded-full bg-white px-3 py-2">
                 当前状态 {isPreviewBusy ? "处理中" : previewReady ? "可继续" : "待确认"}
               </span>
@@ -254,48 +254,13 @@ export function TemplateBuilderScreen({
         </section>
 
         <aside className="min-h-0 overflow-y-auto rounded-[28px] border border-line bg-white p-5 shadow-sm">
-          <p className="text-sm font-medium text-ink">处理方式</p>
-          <p className="mt-1 text-xs text-muted">不确定时先用默认值，再看预览效果。</p>
+          <p className="text-sm font-medium text-ink">快速设置</p>
+          <p className="mt-1 text-xs text-muted">先用下面的简单选项，足够大多数图片处理。</p>
 
           <div className="mt-4 space-y-4">
             <div>
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-sm font-medium text-ink">处理位置</span>
-                <div className="flex gap-1.5">
-                  <button
-                    className="rounded-lg border border-line bg-surface px-2 py-1 text-xs font-medium"
-                    type="button"
-                    onClick={onClearRegionSelection}
-                  >
-                    清除
-                  </button>
-                  <button
-                    className="rounded-lg border border-line bg-surface px-2 py-1 text-xs font-medium"
-                    type="button"
-                    onClick={onResetRegion}
-                  >
-                    重置
-                  </button>
-                </div>
-              </div>
-
-              {hasRegionSelection ? (
-                <>
-                  <RegionInputs region={region} onChange={onUpdateRegion} />
-                  <div className="mt-4">
-                    <RegionSliders region={region} onChange={onUpdateRegion} />
-                  </div>
-                </>
-              ) : (
-                <div className="rounded-[24px] border border-dashed border-line bg-surface px-6 py-10 text-sm text-muted">
-                  当前没有选区，请点击中间图片重新创建处理区域。
-                </div>
-              )}
-            </div>
-
-            <div>
               <span className="mb-2 block text-sm font-medium text-ink">适配与处理</span>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-3">
                 <div className="space-y-1.5">
                   <p className="text-xs text-muted">怎么适配不同尺寸</p>
                   <div className="grid grid-cols-3 gap-1">
@@ -340,52 +305,90 @@ export function TemplateBuilderScreen({
                   </div>
 
                   {cleanupMethod === "blur" ? (
-                    <div className="mt-2 flex items-center gap-2">
-                      <span className="text-xs text-muted">强度</span>
-                      <input
-                        className="flex-1 accent-primary"
-                        type="range"
-                        min={1}
-                        max={40}
-                        step={1}
-                        value={blurSigma}
-                        onChange={(event) => onSetBlurSigma(Number(event.target.value))}
-                      />
-                      <span className="w-8 text-right font-mono text-xs text-muted">{blurSigma.toFixed(0)}</span>
+                    <div className="mt-2 rounded-[18px] border border-line bg-surface px-3 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted">修复强度</span>
+                        <input
+                          className="flex-1 accent-primary"
+                          type="range"
+                          min={1}
+                          max={40}
+                          step={1}
+                          value={blurSigma}
+                          onChange={(event) => onSetBlurSigma(Number(event.target.value))}
+                        />
+                        <span className="w-8 text-right font-mono text-xs text-muted">{blurSigma.toFixed(0)}</span>
+                      </div>
                     </div>
                   ) : null}
 
                   {cleanupMethod === "fill" ? (
-                    <div className="mt-2 flex items-center gap-2">
-                      <input
-                        className="h-7 w-10 rounded border border-line bg-white p-0.5"
-                        type="color"
-                        value={fillColor}
-                        onChange={(event) => onSetFillColor(event.target.value)}
-                      />
-                      <input
-                        className="flex-1 h-7 rounded-lg border border-line bg-surface px-2 text-xs"
-                        value={fillColor}
-                        onChange={(event) => onSetFillColor(event.target.value)}
-                      />
+                    <div className="mt-2 rounded-[18px] border border-line bg-surface px-3 py-3">
+                      <div className="flex items-center gap-2">
+                        <input
+                          className="h-7 w-10 rounded border border-line bg-white p-0.5"
+                          type="color"
+                          value={fillColor}
+                          onChange={(event) => onSetFillColor(event.target.value)}
+                        />
+                        <input
+                          className="flex-1 h-7 rounded-lg border border-line bg-white px-2 text-xs"
+                          value={fillColor}
+                          onChange={(event) => onSetFillColor(event.target.value)}
+                        />
+                      </div>
                     </div>
                   ) : null}
                 </div>
               </div>
+            </div>
 
-              <div className="mt-3 flex items-center justify-between">
+            <details className="rounded-[24px] border border-line bg-surface px-4 py-4">
+              <summary className="cursor-pointer text-sm font-medium text-ink">精确调整位置（高级）</summary>
+              <div className="mt-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-ink">处理位置</span>
+                  <div className="flex gap-1.5">
+                    <button
+                      className="rounded-lg border border-line bg-white px-2 py-1 text-xs font-medium"
+                      type="button"
+                      onClick={onClearRegionSelection}
+                    >
+                      清除
+                    </button>
+                    <button
+                      className="rounded-lg border border-line bg-white px-2 py-1 text-xs font-medium"
+                      type="button"
+                      onClick={onResetRegion}
+                    >
+                      重置
+                    </button>
+                  </div>
+                </div>
+
+                {hasRegionSelection ? (
+                  <>
+                    <RegionInputs region={region} onChange={onUpdateRegion} />
+                    <RegionSliders region={region} onChange={onUpdateRegion} />
+                  </>
+                ) : (
+                  <div className="rounded-[20px] border border-dashed border-line bg-white px-4 py-6 text-sm text-muted">
+                    当前没有选区，请点击中间图片重新创建处理区域。
+                  </div>
+                )}
+
                 <button
-                  className="rounded-lg border border-line bg-surface px-2 py-1 text-xs font-medium"
+                  className="rounded-lg border border-line bg-white px-2 py-1 text-xs font-medium"
                   type="button"
                   onClick={onResetCurrentRegionSettings}
                 >
                   重置参数
                 </button>
               </div>
-            </div>
+            </details>
 
             <details className="rounded-[24px] border border-line bg-surface px-4 py-4">
-              <summary className="cursor-pointer text-sm font-medium text-ink">高级输出设置</summary>
+              <summary className="cursor-pointer text-sm font-medium text-ink">更多设置</summary>
               <div className="mt-4 space-y-3">
                 <label className="block">
                   <span className="mb-2 block text-xs font-medium text-muted">输出目录</span>

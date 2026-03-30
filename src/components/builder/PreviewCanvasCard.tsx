@@ -25,6 +25,7 @@ export function PreviewCanvasCard({
   region,
   selected,
   dimensions,
+  frameHeight,
   editable = false,
   onRegionChange,
   loading = false,
@@ -35,15 +36,17 @@ export function PreviewCanvasCard({
   region?: Region;
   selected?: boolean;
   dimensions?: { width: number; height: number };
+  frameHeight?: number;
   editable?: boolean;
   onRegionChange?: (patch: Partial<Region>) => void;
   loading?: boolean;
   loadingMessage?: string;
 }) {
+  const canvasHeight = frameHeight ?? (editable ? 380 : 320);
   const frameRef = useRef<HTMLDivElement | null>(null);
   const regionChangeFrameRef = useRef<number | null>(null);
   const pendingRegionChangeRef = useRef<Partial<Region> | Region | null>(null);
-  const [frameSize, setFrameSize] = useState({ width: 0, height: 320 });
+  const [frameSize, setFrameSize] = useState({ width: 0, height: canvasHeight });
   const [hoveredHandle, setHoveredHandle] = useState<ResizeMode | null>(null);
   const contained = getContainedRect(frameSize, dimensions);
 
@@ -408,10 +411,13 @@ export function PreviewCanvasCard({
             className={`h-[320px] w-full object-contain transition duration-300 ${
               loading ? "scale-[0.985] opacity-45" : "opacity-100"
             }`}
+            style={{ height: `${canvasHeight}px` }}
             src={image}
           />
         ) : (
-          <div className="flex h-[320px] items-center justify-center text-sm text-muted">暂无图像</div>
+          <div className="flex items-center justify-center text-sm text-muted" style={{ height: `${canvasHeight}px` }}>
+            暂无图像
+          </div>
         )}
         {image && region && selected ? (
           <div

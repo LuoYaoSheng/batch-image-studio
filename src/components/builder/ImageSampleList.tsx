@@ -1,6 +1,5 @@
 import { memo } from "react";
 import type { ImportedImage } from "../../types";
-import { formatBytes } from "../../lib/formatting";
 
 type PreviewTaskState = {
   taskId: string;
@@ -23,37 +22,36 @@ const ImageSampleRow = memo(function ImageSampleRow({
 }) {
   return (
     <div
-      className={`rounded-2xl border p-3 transition ${
+      className={`rounded-2xl border p-2.5 transition ${
         isSelected ? "border-primary bg-primary/8" : "border-line bg-white hover:border-primary-strong"
       }`}
     >
-      <div className="flex gap-3">
-        <button className="flex min-w-0 flex-1 gap-3 text-left" type="button" onClick={() => onSelect(item.id)}>
+      <div className="flex gap-2">
+        <button className="flex min-w-0 flex-1 gap-2.5 text-left" type="button" onClick={() => onSelect(item.id)}>
           <img
             alt={item.name}
-            className="h-16 w-16 rounded-xl border border-line object-cover"
+            className="h-14 w-14 rounded-xl border border-line object-cover"
             decoding="async"
             loading="lazy"
             src={item.thumbnailDataUrl}
           />
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">
-              <p className="truncate text-sm font-medium">{item.name}</p>
+              <p className="line-clamp-2 text-[13px] font-medium leading-5 text-ink">{item.name}</p>
               {taskState ? (
                 <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
                   {taskState.stage === "completed" ? "已缓存" : taskState.stage === "error" ? "失败" : "处理中"}
                 </span>
               ) : null}
             </div>
-            <p className="mt-1 text-xs text-muted">
-              {item.width} × {item.height} · {item.format.toUpperCase()}
+            <p className="mt-1 text-[11px] text-muted">
+              {item.width} × {item.height}
             </p>
-            <p className="mt-1 text-xs text-muted">{formatBytes(item.fileSize)}</p>
           </div>
         </button>
         {onRemove ? (
           <button
-            className="shrink-0 rounded-xl border border-line bg-white px-3 py-2 text-xs font-medium text-muted hover:text-[#9a2020]"
+            className="shrink-0 rounded-xl border border-line bg-white px-2.5 py-2 text-[11px] font-medium text-muted hover:text-[#9a2020]"
             type="button"
             onClick={() => onRemove(item.id)}
           >
