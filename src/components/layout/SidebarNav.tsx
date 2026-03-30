@@ -18,7 +18,7 @@ export function SidebarNav({
   onNavigate: (screen: AppScreen) => void;
 }) {
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r border-line bg-[#eef2f6] px-4 py-5">
+    <aside className="flex w-[248px] shrink-0 flex-col border-r border-line bg-[#eef2f6] px-4 py-5">
       <div className="rounded-2xl bg-white px-4 py-4 shadow-sm">
         <p className="text-xs uppercase tracking-[0.24em] text-muted">Batch Image Studio</p>
         <h1 className="mt-2 text-xl font-semibold text-ink">图片批量处理大师</h1>

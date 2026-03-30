@@ -77,8 +77,8 @@ export function AppShell({
       <SidebarNav currentScreen={currentScreen} onNavigate={onNavigate} />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar title={title} subtitle={subtitle} actions={actions} />
-        {notification ? <div className="px-6 pt-4">{notification}</div> : null}
-        <main className="min-w-0 flex-1 px-6 py-5">{children}</main>
+        {notification ? <div className="px-5 pt-4">{notification}</div> : null}
+        <main className="min-w-0 flex-1 px-5 py-5">{children}</main>
       </div>
       <KeyboardShortcutsDialog isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
     </div>

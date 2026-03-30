@@ -19,3 +19,6 @@ _bmad/
 _bmad-output/
 docs/
 *.md.bak
+
+# Test artifacts
+test-results/
