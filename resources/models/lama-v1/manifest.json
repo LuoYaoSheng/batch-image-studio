@@ -1,7 +1,10 @@
 {
   "profileId": "lama-v1",
   "displayName": "LaMa v1",
+  "version": "1.0.0",
   "modelFile": "model.onnx",
   "inputWidth": 512,
-  "inputHeight": 512
+  "inputHeight": 512,
+  "sha256": "351e481e287f345b7fbfd026068cfb9ec0c7f24b440e6501458ebe54a833d1a1",
+  "minAppVersion": "0.1.1"
 }

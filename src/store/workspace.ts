@@ -84,6 +84,10 @@ type WorkspaceState = {
   isModelLoading: boolean;
   isModelLoaded: boolean;
   isModelFailed: boolean;
+  isModelAvailable: boolean;
+  hasCheckedModelStatus: boolean;
+  modelInstallDir: string;
+  preferredModelSource: "local" | "bundled" | null;
   modelLoadProgress: number;
   setCurrentScreen: (screen: AppScreen) => void;
   setBuilderMode: (mode: "new" | "edit") => void;
@@ -168,6 +172,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     isModelLoading: false,
     isModelLoaded: false,
     isModelFailed: false,
+    isModelAvailable: false,
+    hasCheckedModelStatus: false,
+    modelInstallDir: "",
+    preferredModelSource: null,
     modelLoadProgress: 0,
     setCurrentScreen: (currentScreen) =>
       set((state) => ({
@@ -545,6 +553,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           isModelLoaded: status.isLoaded,
           isModelLoading: status.isLoading,
           isModelFailed: status.isFailed,
+          isModelAvailable: status.isAvailable,
+          hasCheckedModelStatus: true,
+          modelInstallDir: status.localModelsDir,
+          preferredModelSource: status.preferredModelSource ?? null,
         });
         return status;
       } catch (error) {
@@ -553,6 +565,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           isLoaded: false,
           isLoading: false,
           isFailed: false,
+          isAvailable: false,
+          hasCheckedModelStatus: true,
+          localModelsDir: "",
+          preferredModelSource: null,
         };
       }
     },

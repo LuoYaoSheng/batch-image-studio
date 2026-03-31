@@ -11,29 +11,43 @@ export function HomeScreen({
   templates,
   history,
   isImporting,
+  hasCheckedModelStatus,
+  isModelAvailable,
   isModelLoaded,
   isModelLoading,
   isModelFailed,
+  preferredModelSource,
   modelLoadProgress,
   onImportFiles,
   onImportFolder,
   onOpenTemplates,
   onUseTemplate,
   onOpenHistory,
+  onOpenModelDir,
+  onDownloadModel,
+  onImportModelPackage,
+  onOpenOfficialModelInfo,
   onRetryModelLoad,
 }: {
   templates: Template[];
   history: HistoryEntry[];
   isImporting: boolean;
+  hasCheckedModelStatus: boolean;
+  isModelAvailable: boolean;
   isModelLoaded: boolean;
   isModelLoading: boolean;
   isModelFailed: boolean;
+  preferredModelSource: "local" | "bundled" | null;
   modelLoadProgress: number;
   onImportFiles: () => void;
   onImportFolder: () => void;
   onOpenTemplates: () => void;
   onUseTemplate: (id: string) => void;
   onOpenHistory: () => void;
+  onOpenModelDir: () => void;
+  onDownloadModel: () => void;
+  onImportModelPackage: () => void;
+  onOpenOfficialModelInfo: () => void;
   onRetryModelLoad?: () => void;
 }) {
   const recentTemplates = [...templates]
@@ -52,13 +66,54 @@ export function HomeScreen({
     <div className="space-y-4">
       <div className="flex justify-center">
         <ModelStatusIndicator
+          hasCheckedStatus={hasCheckedModelStatus}
+          isAvailable={isModelAvailable}
           isLoaded={isModelLoaded}
           isLoading={isModelLoading}
           isFailed={isModelFailed}
+          preferredModelSource={preferredModelSource}
           progress={modelLoadProgress}
           onRetry={onRetryModelLoad}
+          onOpenModelDir={onOpenModelDir}
+          onDownloadModel={onDownloadModel}
         />
       </div>
+
+      {hasCheckedModelStatus && !isModelAvailable ? (
+        <section className="rounded-[24px] border border-[#f0d8a8] bg-[#fff6df] px-5 py-4">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-[#8a5b00]">当前还没有安装智能修复模型</p>
+              <p className="mt-1 text-xs text-[#8a5b00]">
+                先下载模型包，再点击“导入模型包”，以后就能一直使用预览和批量智能修复。
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                className="rounded-2xl bg-primary px-4 py-2.5 text-sm font-medium text-white"
+                type="button"
+                onClick={onDownloadModel}
+              >
+                下载并安装
+              </button>
+              <button
+                className="rounded-2xl border border-primary bg-white px-4 py-2.5 text-sm font-medium text-primary"
+                type="button"
+                onClick={onImportModelPackage}
+              >
+                导入模型包
+              </button>
+              <button
+                className="rounded-2xl border border-[#f0d8a8] bg-white px-4 py-2.5 text-sm font-medium text-primary"
+                type="button"
+                onClick={onOpenOfficialModelInfo}
+              >
+                官方项目
+              </button>
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       <div className="grid min-h-[780px] grid-rows-[minmax(0,1fr)_auto] gap-4">
         <section className="grid min-h-0 gap-4 xl:grid-cols-[minmax(0,1.25fr)_332px]">

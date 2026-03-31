@@ -216,10 +216,26 @@ export function applyFileNamingRule(
 // Note: Rust struct uses snake_case (is_loaded), but serde rename_all = "camelCase" handles conversion
 export type ModelLoadStatus = "not-loaded" | "loading" | "loaded" | "failed";
 
+export type ModelSource = "local" | "bundled";
+
+export type InstallModelPackageResponse = {
+  profileId: string;
+  displayName: string;
+  version: string;
+  installDir: string;
+};
+
+export type ModelPackageTaskStarted = {
+  taskId: string;
+};
+
 export type ModelStatusResponse = {
   isLoaded: boolean;
   isLoading: boolean;
   isFailed: boolean;
+  isAvailable: boolean;
+  preferredModelSource?: ModelSource | null;
+  localModelsDir: string;
 };
 
 export type ModelLoadProgressEvent = {
@@ -228,4 +244,16 @@ export type ModelLoadProgressEvent = {
 
 export type ModelLoadErrorEvent = {
   error: string;
+};
+
+export type ModelPackageDownloadProgressEvent = {
+  progress: number;
+};
+
+export type ModelPackageTaskEvent = {
+  taskId: string;
+  stage: "completed" | "error";
+  message: string;
+  result?: InstallModelPackageResponse | null;
+  error?: string | null;
 };

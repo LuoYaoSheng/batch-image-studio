@@ -8,7 +8,7 @@ use tauri::Manager;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BundledModelInfo {
+pub struct ModelInfo {
   pub profile_id: String,
   pub display_name: String,
   pub version: String,
@@ -20,14 +20,25 @@ pub struct BundledModelInfo {
   pub bytes: u64,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ModelSource {
+  Local,
+  Bundled,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeStatus {
   pub engine: String,
   pub resources_dir: String,
-  pub models_dir: String,
+  pub bundled_models_dir: String,
+  pub local_models_dir: String,
   pub ready: bool,
-  pub bundled_model: Option<BundledModelInfo>,
+  pub bundled_model: Option<ModelInfo>,
+  pub local_model: Option<ModelInfo>,
+  pub preferred_model: Option<ModelInfo>,
+  pub preferred_model_source: Option<ModelSource>,
   pub message: String,
 }
 
@@ -39,12 +50,19 @@ pub enum CleanupEngineKind {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct ModelManifest {
   pub profile_id: String,
   pub display_name: String,
   pub model_file: String,
   pub input_width: u32,
   pub input_height: u32,
+  #[serde(default)]
+  pub version: Option<String>,
+  #[serde(default)]
+  pub sha256: Option<String>,
+  #[serde(default)]
+  pub min_app_version: Option<String>,
 }
 
 pub fn bundled_models_dir(app: &tauri::AppHandle) -> Result<PathBuf> {
@@ -64,11 +82,25 @@ pub fn bundled_models_dir(app: &tauri::AppHandle) -> Result<PathBuf> {
   Ok(app.path().resource_dir()?.join("models"))
 }
 
+pub fn local_models_dir(app: &tauri::AppHandle) -> Result<PathBuf> {
+  Ok(app.path().app_local_data_dir()?.join("models"))
+}
+
+pub fn ensure_local_models_dir(app: &tauri::AppHandle) -> Result<PathBuf> {
+  let dir = local_models_dir(app)?;
+  fs::create_dir_all(&dir)
+    .with_context(|| format!("无法创建本地模型目录: {}", dir.display()))?;
+  Ok(dir)
+}
+
 pub fn resolve_runtime_status(app: &tauri::AppHandle) -> Result<RuntimeStatus> {
   let resources_dir = app.path().resource_dir()?;
-  let models_dir = bundled_models_dir(app)?;
-  let bundled_model = discover_bundled_model(&models_dir)?;
-  let ready = bundled_model.is_some();
+  let bundled_dir = bundled_models_dir(app)?;
+  let local_dir = local_models_dir(app)?;
+  let bundled_model = discover_model(&bundled_dir)?;
+  let local_model = discover_model(&local_dir)?;
+  let preferred = local_model.clone().map(|model| (ModelSource::Local, model));
+  let ready = preferred.is_some();
 
   Ok(RuntimeStatus {
     engine: if ready {
@@ -77,13 +109,17 @@ pub fn resolve_runtime_status(app: &tauri::AppHandle) -> Result<RuntimeStatus> {
       "legacy-heuristic".to_string()
     },
     resources_dir: resources_dir.to_string_lossy().to_string(),
-    models_dir: models_dir.to_string_lossy().to_string(),
+    bundled_models_dir: bundled_dir.to_string_lossy().to_string(),
+    local_models_dir: local_dir.to_string_lossy().to_string(),
     ready,
     bundled_model,
-    message: if ready {
-      "Bundled model assets detected.".to_string()
-    } else {
-      "No bundled ONNX model found yet. App will keep using the heuristic engine.".to_string()
+    local_model,
+    preferred_model: preferred.as_ref().map(|(_, model)| model.clone()),
+    preferred_model_source: preferred.as_ref().map(|(source, _)| *source),
+    message: match preferred {
+      Some((ModelSource::Local, _)) => "Local model assets detected.".to_string(),
+      Some((ModelSource::Bundled, _)) => "Bundled model assets detected.".to_string(),
+      None => "No installed ONNX model found yet. App will keep using the heuristic engine.".to_string(),
     },
   })
 }
@@ -97,12 +133,25 @@ pub fn resolve_cleanup_engine(app: &tauri::AppHandle) -> Result<CleanupEngineKin
   })
 }
 
-pub fn resolve_bundled_model(app: &tauri::AppHandle) -> Result<Option<BundledModelInfo>> {
+pub fn resolve_bundled_model(app: &tauri::AppHandle) -> Result<Option<ModelInfo>> {
   let models_dir = bundled_models_dir(app)?;
-  discover_bundled_model(&models_dir)
+  discover_model(&models_dir)
 }
 
-fn discover_bundled_model(models_dir: &Path) -> Result<Option<BundledModelInfo>> {
+pub fn resolve_local_model(app: &tauri::AppHandle) -> Result<Option<ModelInfo>> {
+  let models_dir = local_models_dir(app)?;
+  discover_model(&models_dir)
+}
+
+pub fn resolve_preferred_model(app: &tauri::AppHandle) -> Result<Option<(ModelSource, ModelInfo)>> {
+  if let Some(model) = resolve_local_model(app)? {
+    return Ok(Some((ModelSource::Local, model)));
+  }
+
+  Ok(None)
+}
+
+fn discover_model(models_dir: &Path) -> Result<Option<ModelInfo>> {
   if !models_dir.exists() {
     return Ok(None);
   }
@@ -132,13 +181,18 @@ fn discover_bundled_model(models_dir: &Path) -> Result<Option<BundledModelInfo>>
     let bytes = fs::metadata(&model_path)
       .with_context(|| format!("无法读取模型信息: {}", model_path.display()))?
       .len();
-    let version = folder
-      .file_name()
-      .and_then(|value| value.to_str())
-      .unwrap_or("unknown")
-      .to_string();
+    let version = manifest
+      .version
+      .clone()
+      .or_else(|| {
+        folder
+          .file_name()
+          .and_then(|value| value.to_str())
+          .map(|value| value.to_string())
+      })
+      .unwrap_or_else(|| "unknown".to_string());
 
-    return Ok(Some(BundledModelInfo {
+    return Ok(Some(ModelInfo {
       profile_id: manifest.profile_id,
       display_name: manifest.display_name,
       version,

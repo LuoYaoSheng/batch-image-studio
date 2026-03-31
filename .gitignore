@@ -7,6 +7,7 @@ src-tauri/target/
 resources/models/**/*.onnx
 resources/models/**/*.ort
 resources/models/**/*.bin
+resources/models/**/*.zip
 
 # Local-only prototype references
 stitch/

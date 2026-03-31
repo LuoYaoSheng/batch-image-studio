@@ -10,10 +10,13 @@ use image::{
   RgbaImage,
 };
 use inpaint::prelude::ImageInpaint;
+use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
   collections::HashSet,
   fs,
+  io::{Read, Write},
   path::{Path, PathBuf},
   process::Command,
   sync::{
@@ -27,6 +30,7 @@ use tauri::{Emitter, Manager};
 use texture_synthesis as ts;
 // tract_onnx 不再使用，改用 Python onnxruntime
 use walkdir::WalkDir;
+use zip::ZipArchive;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -243,6 +247,34 @@ struct ModelStatusResponse {
   is_loaded: bool,
   is_loading: bool,
   is_failed: bool,
+  is_available: bool,
+  preferred_model_source: Option<model_runtime::ModelSource>,
+  local_models_dir: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InstallModelPackageResponse {
+  profile_id: String,
+  display_name: String,
+  version: String,
+  install_dir: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ModelPackageTaskStarted {
+  task_id: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ModelPackageTaskEvent {
+  task_id: String,
+  stage: String,
+  message: String,
+  result: Option<InstallModelPackageResponse>,
+  error: Option<String>,
 }
 
 #[tauri::command]
@@ -272,15 +304,15 @@ async fn preload_model(app: tauri::AppHandle) -> Result<ModelLoadState, String> 
   }
 
   // 检查是否有可用的 ONNX 模型
-  let bundled_model = model_runtime::resolve_bundled_model(&app)
+  let preferred_model = model_runtime::resolve_preferred_model(&app)
     .map_err(|e| e.to_string())?
-    .ok_or_else(|| "未找到内置模型文件".to_string())?;
+    .ok_or_else(|| "未找到可用模型文件".to_string())?;
 
   // 发送初始进度
   let _ = app.emit("model-load:progress", serde_json::json!({ "progress": 0 }));
 
   // 开始预加载
-  match server_manager.preload(&app, &bundled_model.model_path) {
+  match server_manager.preload(&app, &preferred_model.1.model_path) {
     Ok(_) => {
       // 发送完成事件
       let _ = app.emit("model-load:progress", serde_json::json!({ "progress": 100 }));
@@ -304,6 +336,7 @@ async fn preload_model(app: tauri::AppHandle) -> Result<ModelLoadState, String> 
 fn get_model_status(app: tauri::AppHandle) -> Result<ModelStatusResponse, String> {
   let server_manager = app.state::<onnx_server::OnnxServerManager>();
   let status = server_manager.status();
+  let runtime_status = model_runtime::resolve_runtime_status(&app).map_err(|err| err.to_string())?;
 
   let (is_loaded, is_loading, is_failed) = match status {
     onnx_server::ModelLoadStatus::Loaded => (true, false, false),
@@ -316,7 +349,261 @@ fn get_model_status(app: tauri::AppHandle) -> Result<ModelStatusResponse, String
     is_loaded,
     is_loading,
     is_failed,
+    is_available: runtime_status.ready,
+    preferred_model_source: runtime_status.preferred_model_source,
+    local_models_dir: runtime_status.local_models_dir,
   })
+}
+
+#[tauri::command]
+fn open_model_install_dir(app: tauri::AppHandle) -> Result<(), String> {
+  let dir = model_runtime::ensure_local_models_dir(&app).map_err(|err| err.to_string())?;
+  open_path_in_file_manager(dir.to_string_lossy().to_string())
+}
+
+fn copy_dir_recursive(from: &Path, to: &Path) -> Result<()> {
+  fs::create_dir_all(to)?;
+
+  for entry in fs::read_dir(from)? {
+    let entry = entry?;
+    let source = entry.path();
+    let target = to.join(entry.file_name());
+
+    if source.is_dir() {
+      copy_dir_recursive(&source, &target)?;
+    } else if source.is_file() {
+      fs::copy(&source, &target)?;
+    }
+  }
+
+  Ok(())
+}
+
+fn find_manifest_file(root: &Path) -> Result<PathBuf> {
+  WalkDir::new(root)
+    .into_iter()
+    .filter_map(|entry| entry.ok())
+    .map(|entry| entry.into_path())
+    .find(|path| path.is_file() && path.file_name().and_then(|name| name.to_str()) == Some("manifest.json"))
+    .ok_or_else(|| anyhow!("模型包中未找到 manifest.json"))
+}
+
+fn parse_version_parts(value: &str) -> Vec<u64> {
+  value
+    .split('.')
+    .map(|part| part.parse::<u64>().unwrap_or(0))
+    .collect()
+}
+
+fn version_satisfies(current: &str, minimum: &str) -> bool {
+  let left = parse_version_parts(current);
+  let right = parse_version_parts(minimum);
+  let max_len = left.len().max(right.len());
+
+  for index in 0..max_len {
+    let left_part = *left.get(index).unwrap_or(&0);
+    let right_part = *right.get(index).unwrap_or(&0);
+
+    if left_part > right_part {
+      return true;
+    }
+    if left_part < right_part {
+      return false;
+    }
+  }
+
+  true
+}
+
+fn sha256_file(path: &Path) -> Result<String> {
+  let bytes = fs::read(path)
+    .with_context(|| format!("无法读取文件进行校验: {}", path.display()))?;
+  let mut hasher = Sha256::new();
+  hasher.update(bytes);
+  Ok(format!("{:x}", hasher.finalize()))
+}
+
+#[tauri::command]
+fn install_model_package_from_path(
+  app: &tauri::AppHandle,
+  package_path: &Path,
+) -> Result<InstallModelPackageResponse> {
+  if !package_path.exists() {
+    return Err(anyhow!("模型包不存在: {}", package_path.display()));
+  }
+
+  let file = fs::File::open(package_path).with_context(|| format!("无法读取模型包: {}", package_path.display()))?;
+  let mut archive = ZipArchive::new(file).context("模型包格式无效")?;
+  let temp_dir = tempfile::tempdir().context("无法创建临时目录")?;
+
+  for index in 0..archive.len() {
+    let mut entry = archive.by_index(index).context("读取模型包失败")?;
+    let Some(relative_path) = entry.enclosed_name().map(|path| path.to_path_buf()) else {
+      continue;
+    };
+    let destination = temp_dir.path().join(relative_path);
+
+    if entry.is_dir() {
+      fs::create_dir_all(&destination).with_context(|| format!("无法创建目录: {}", destination.display()))?;
+      continue;
+    }
+
+    if let Some(parent) = destination.parent() {
+      fs::create_dir_all(parent).with_context(|| format!("无法创建目录: {}", parent.display()))?;
+    }
+
+    let mut output = fs::File::create(&destination).with_context(|| format!("无法写入文件: {}", destination.display()))?;
+    std::io::copy(&mut entry, &mut output).context("解压模型包失败")?;
+  }
+
+  let manifest_path = find_manifest_file(temp_dir.path())?;
+  let manifest = model_runtime::read_manifest(&manifest_path)?;
+  let manifest_dir = manifest_path
+    .parent()
+    .ok_or_else(|| anyhow!("manifest 路径无效"))?;
+  let model_path = manifest_dir.join(&manifest.model_file);
+
+  if !model_path.exists() {
+    return Err(anyhow!("模型包缺少模型文件: {}", manifest.model_file));
+  }
+
+  if let Some(min_app_version) = manifest.min_app_version.as_deref() {
+    let current_app_version = app.package_info().version.to_string();
+    if !version_satisfies(&current_app_version, min_app_version) {
+      return Err(anyhow!(
+        "模型包要求应用版本至少为 {}，当前版本为 {}",
+        min_app_version, current_app_version
+      ));
+    }
+  }
+
+  if let Some(expected_sha256) = manifest.sha256.as_deref() {
+    let actual_sha256 = sha256_file(&model_path)?;
+    if actual_sha256.to_lowercase() != expected_sha256.trim().to_lowercase() {
+      return Err(anyhow!("模型文件校验失败，请重新下载模型包"));
+    }
+  }
+
+  let local_models_dir = model_runtime::ensure_local_models_dir(app)?;
+  let install_dir = local_models_dir.join(&manifest.profile_id);
+  if install_dir.exists() {
+    fs::remove_dir_all(&install_dir).with_context(|| format!("无法清理旧模型目录: {}", install_dir.display()))?;
+  }
+
+  copy_dir_recursive(manifest_dir, &install_dir).context("安装模型失败")?;
+
+  Ok(InstallModelPackageResponse {
+    profile_id: manifest.profile_id,
+    display_name: manifest.display_name,
+    version: manifest.version.unwrap_or_else(|| "manual".to_string()),
+    install_dir: install_dir.to_string_lossy().to_string(),
+  })
+}
+
+#[tauri::command]
+fn install_model_package(
+  app: tauri::AppHandle,
+  file_path: String,
+) -> Result<InstallModelPackageResponse, String> {
+  install_model_package_from_path(&app, Path::new(&file_path)).map_err(|err| err.to_string())
+}
+
+fn download_and_install_model_package_from_url(
+  app: &tauri::AppHandle,
+  url: &str,
+) -> Result<InstallModelPackageResponse, String> {
+  if !(url.starts_with("https://") || url.starts_with("http://")) {
+    return Err("仅支持下载 http/https 链接".to_string());
+  }
+
+  let client = Client::builder()
+    .build()
+    .map_err(|err| format!("初始化下载客户端失败: {err}"))?;
+  let mut response = client
+    .get(url)
+    .header("User-Agent", format!("BatchImageStudio/{}", app.package_info().version))
+    .send()
+    .and_then(|resp| resp.error_for_status())
+    .map_err(|err| format!("下载模型包失败: {err}"))?;
+
+  let temp_dir = tempfile::tempdir().map_err(|err| format!("无法创建临时目录: {err}"))?;
+  let package_path = temp_dir.path().join("model-package.zip");
+  let mut output = fs::File::create(&package_path).map_err(|err| format!("保存模型包失败: {err}"))?;
+  let total = response.content_length().unwrap_or(0);
+  let mut downloaded = 0u64;
+  let mut buffer = [0u8; 64 * 1024];
+
+  let _ = app.emit("model-package-download:progress", serde_json::json!({ "progress": 0 }));
+
+  loop {
+    let read = response
+      .read(&mut buffer)
+      .map_err(|err| format!("读取模型包失败: {err}"))?;
+    if read == 0 {
+      break;
+    }
+
+    output
+      .write_all(&buffer[..read])
+      .map_err(|err| format!("保存模型包失败: {err}"))?;
+    downloaded += read as u64;
+
+    if total > 0 {
+      let progress = ((downloaded as f64 / total as f64) * 100.0).round() as u64;
+      let _ = app.emit(
+        "model-package-download:progress",
+        serde_json::json!({ "progress": progress.min(100) }),
+      );
+    }
+  }
+
+  let _ = app.emit("model-package-download:progress", serde_json::json!({ "progress": 100 }));
+
+  install_model_package_from_path(app, &package_path).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn start_download_and_install_model_package(
+  app: tauri::AppHandle,
+  url: String,
+) -> Result<ModelPackageTaskStarted, String> {
+  let task_id = format!("model-package-{}", SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .map_err(|err| err.to_string())?
+    .as_micros());
+  let app_handle = app.clone();
+  let task_id_for_thread = task_id.clone();
+
+  thread::spawn(move || {
+    match download_and_install_model_package_from_url(&app_handle, &url) {
+      Ok(result) => {
+        let _ = app_handle.emit(
+          "model-package-download:task",
+          ModelPackageTaskEvent {
+            task_id: task_id_for_thread,
+            stage: "completed".to_string(),
+            message: "兼容模型包已下载并安装".to_string(),
+            result: Some(result),
+            error: None,
+          },
+        );
+      }
+      Err(error) => {
+        let _ = app_handle.emit(
+          "model-package-download:task",
+          ModelPackageTaskEvent {
+            task_id: task_id_for_thread,
+            stage: "error".to_string(),
+            message: "下载并安装兼容模型包失败".to_string(),
+            result: None,
+            error: Some(error),
+          },
+        );
+      }
+    }
+  });
+
+  Ok(ModelPackageTaskStarted { task_id: task_id })
 }
 
 #[tauri::command]
@@ -371,6 +658,43 @@ fn open_path_in_file_manager(path: String) -> Result<(), String> {
 
   #[allow(unreachable_code)]
   Err("当前平台暂不支持打开系统文件管理器".to_string())
+}
+
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+  if !(url.starts_with("https://") || url.starts_with("http://")) {
+    return Err("仅支持打开 http/https 链接".to_string());
+  }
+
+  #[cfg(target_os = "macos")]
+  {
+    Command::new("open")
+      .arg(&url)
+      .status()
+      .map_err(|err| err.to_string())?;
+    return Ok(());
+  }
+
+  #[cfg(target_os = "windows")]
+  {
+    Command::new("explorer")
+      .arg(&url)
+      .status()
+      .map_err(|err| err.to_string())?;
+    return Ok(());
+  }
+
+  #[cfg(target_os = "linux")]
+  {
+    Command::new("xdg-open")
+      .arg(&url)
+      .status()
+      .map_err(|err| err.to_string())?;
+    return Ok(());
+  }
+
+  #[allow(unreachable_code)]
+  Err("当前平台暂不支持打开外部链接".to_string())
 }
 
 #[tauri::command]
@@ -1967,12 +2291,16 @@ fn apply_embedded_model_cleanup(
   size_handling_mode: &str,
   _repair_strength: f32,  // ONNX 模型不使用此参数
 ) -> Result<DynamicImage> {
-  log::info!("apply_embedded_model_cleanup: 开始加载内置模型");
-  let bundled_model = model_runtime::resolve_bundled_model(app)?
-    .ok_or_else(|| anyhow!("未找到内置模型文件"))?;
-  log::info!("模型加载成功: {} ({} MB)", bundled_model.model_path, bundled_model.bytes / 1024 / 1024);
-  let input_w = bundled_model.input_width.max(1);
-  let input_h = bundled_model.input_height.max(1);
+  let (model_source, model_info) = model_runtime::resolve_preferred_model(app)?
+    .ok_or_else(|| anyhow!("未找到可用模型文件"))?;
+  log::info!(
+    "apply_embedded_model_cleanup: 使用{:?}模型 {} ({} MB)",
+    model_source,
+    model_info.model_path,
+    model_info.bytes / 1024 / 1024
+  );
+  let input_w = model_info.input_width.max(1);
+  let input_h = model_info.input_height.max(1);
   let (img_w, img_h) = image.dimensions();
   let (x, y, w, h) = region_to_pixels(
     region,
@@ -2001,7 +2329,7 @@ fn apply_embedded_model_cleanup(
     }
   }
 
-  run_onnx_inpainting(app, image, &repair_mask, &bundled_model.model_path, input_w, input_h)
+  run_onnx_inpainting(app, image, &repair_mask, &model_info.model_path, input_w, input_h)
 }
 
 fn run_onnx_inpainting(
@@ -2537,9 +2865,13 @@ pub fn run() {
   tauri::Builder::default()
     .invoke_handler(tauri::generate_handler![
       bootstrap_state,
+      start_download_and_install_model_package,
+      open_external_url,
       open_path_in_file_manager,
+      install_model_package,
       cancel_batch_task,
       runtime_status,
+      open_model_install_dir,
       preload_model,
       get_model_status,
       import_paths,

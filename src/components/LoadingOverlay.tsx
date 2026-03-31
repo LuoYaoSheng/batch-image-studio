@@ -3,6 +3,7 @@ import { memo } from "react";
 type LoadingStage =
   | "importing"
   | "model-loading"
+  | "model-package-download"
   | "reading"
   | "processing"
   | "generating"
@@ -28,6 +29,12 @@ const stageConfig: Record<
   "model-loading": {
     title: "AI 模型加载中",
     description: "首次使用需要加载模型，请稍候...",
+    showProgress: true,
+    cancellable: false,
+  },
+  "model-package-download": {
+    title: "下载模型包中",
+    description: "正在下载并安装兼容模型包，请稍候...",
     showProgress: true,
     cancellable: false,
   },

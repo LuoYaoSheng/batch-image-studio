@@ -1,10 +1,22 @@
+import type { ReactNode } from "react";
 import { startTransition, useEffect, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import {
+  installModelPackage,
+  openExternalUrl,
+  openModelInstallDir,
+  startDownloadAndInstallModelPackage,
+} from "./lib/modelRuntime";
+import {
+  getOfficialModelInfoSource,
+  getPreferredCompatibleModelPackageSource,
+} from "./lib/modelPackageSources";
 import { AppShell } from "./components/layout/AppShell";
 import { DecisionDialog, type DecisionDialogAction } from "./components/layout/DecisionDialog";
+import { LoadingOverlay } from "./components/LoadingOverlay";
 import { StartupScreen } from "./screens/StartupScreen";
 import { BatchScreen } from "./screens/BatchScreen";
 import { HistoryScreen } from "./screens/HistoryScreen";
@@ -26,6 +38,9 @@ import type {
   ImportedImage,
   ModelLoadErrorEvent,
   ModelLoadProgressEvent,
+  ModelPackageDownloadProgressEvent,
+  ModelPackageTaskEvent,
+  ModelPackageTaskStarted,
   OutputFormat,
   PreviewCache,
   PreviewCacheEntry,
@@ -90,7 +105,7 @@ type PreviewTaskState = {
 
 type DecisionDialogState = {
   title: string;
-  description: string;
+  description: ReactNode;
   cancelAction: DecisionDialogAction;
   primaryAction: DecisionDialogAction;
   secondaryAction?: DecisionDialogAction;
@@ -224,8 +239,11 @@ export default function App() {
     Record<string, PreviewTaskState | undefined>
   >({});
   const [autoPreviewOnEnter, setAutoPreviewOnEnter] = useState(false);
+  const [modelPackageDownloadProgress, setModelPackageDownloadProgress] = useState<number | null>(null);
+  const [isModelPackageDownloading, setIsModelPackageDownloading] = useState(false);
   const [decisionDialog, setDecisionDialog] = useState<DecisionDialogState>(null);
   const [templatePicker, setTemplatePicker] = useState<TemplatePickerState>(null);
+  const activeModelPackageTaskIdRef = useRef<string | null>(null);
   const previewTaskContextByTaskIdRef = useRef<
     Record<string, { imageId: string; sourcePath: string; signature: string }>
   >({});
@@ -267,6 +285,10 @@ export default function App() {
     isModelLoading,
     isModelLoaded,
     isModelFailed,
+    isModelAvailable,
+    hasCheckedModelStatus,
+    modelInstallDir,
+    preferredModelSource,
     modelLoadProgress,
     setCurrentScreen,
     setPendingImportDestination,
@@ -480,6 +502,48 @@ export default function App() {
         console.error("Failed to listen model-load:error:", error);
       });
 
+    listen<ModelPackageDownloadProgressEvent>("model-package-download:progress", (event) => {
+      if (!mountedRef.current) return;
+      setModelPackageDownloadProgress(event.payload.progress);
+    })
+      .then((fn) => unlistenFns.push(fn))
+      .catch((error) => {
+        console.error("Failed to listen model-package-download:progress:", error);
+      });
+
+    listen<ModelPackageTaskEvent>("model-package-download:task", (event) => {
+      if (!mountedRef.current) return;
+      const payload = event.payload;
+      if (activeModelPackageTaskIdRef.current && payload.taskId !== activeModelPackageTaskIdRef.current) {
+        return;
+      }
+
+      setIsModelPackageDownloading(false);
+      setModelPackageDownloadProgress(null);
+      activeModelPackageTaskIdRef.current = null;
+
+      if (payload.stage === "completed" && payload.result) {
+        void recheckModelAvailability();
+        setNotification({
+          kind: "success",
+          message: `已安装兼容模型包：${payload.result.displayName} ${payload.result.version}`,
+        });
+        return;
+      }
+
+      setNotification({
+        kind: "error",
+        message:
+          `下载并安装模型包失败：${payload.error ?? payload.message}。` +
+          ` 如果你刚上传 release 资产，请先确认 GitHub v0.1.1 下存在 batch-image-studio-model-lama-v1-1.0.0.zip，` +
+          `或者先使用“导入模型包”。`,
+      });
+    })
+      .then((fn) => unlistenFns.push(fn))
+      .catch((error) => {
+        console.error("Failed to listen model-package-download:task:", error);
+      });
+
     return () => {
       mountedRef.current = false;
       unlistenFns.forEach((fn) => fn());
@@ -499,6 +563,9 @@ export default function App() {
       try {
         // 先获取当前状态
         const status = await getModelStatus();
+        if (!status.isAvailable) {
+          return;
+        }
         if (status.isLoaded) {
           setModelLoaded(true);
           setModelFailed(false);
@@ -1017,6 +1084,10 @@ export default function App() {
       return false;
     }
 
+    if (!isModelAvailable) {
+      return false;
+    }
+
     if (isModelLoaded) {
       return true;
     }
@@ -1044,6 +1115,172 @@ export default function App() {
     }
   }
 
+  async function handleOpenModelDir() {
+    if (!isTauriRuntime()) {
+      setNotification({
+        kind: "info",
+        message: "浏览器预览环境不支持打开模型目录，请在桌面环境中测试。",
+      });
+      return;
+    }
+
+    try {
+      await openModelInstallDir();
+    } catch (error) {
+      setNotification({ kind: "error", message: `打开模型目录失败：${String(error)}` });
+    }
+  }
+
+  async function handleDownloadModel(sourceId?: "compatible-github") {
+    const preferred = getPreferredCompatibleModelPackageSource();
+    const source = sourceId === preferred.id ? preferred : preferred;
+
+    if (!isTauriRuntime()) {
+      window.open(source.url, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    try {
+      setNotification({
+        kind: "info",
+        message: `正在从 ${source.label} 下载并安装兼容模型包，请稍候...`,
+      });
+      setIsModelPackageDownloading(true);
+      setModelPackageDownloadProgress(0);
+      const started = await startDownloadAndInstallModelPackage(source.url);
+      activeModelPackageTaskIdRef.current = started.taskId;
+    } catch (error) {
+      const primaryError = String(error);
+      setIsModelPackageDownloading(false);
+      setModelPackageDownloadProgress(null);
+      activeModelPackageTaskIdRef.current = null;
+      setNotification({
+        kind: "error",
+        message:
+          `下载并安装模型包失败：${primaryError}。` +
+          ` 如果你刚上传 release 资产，请先确认 GitHub v0.1.1 下存在 batch-image-studio-model-lama-v1-1.0.0.zip，` +
+          `或者先使用“导入模型包”。`,
+      });
+    }
+  }
+
+  async function handleOpenOfficialModelInfo() {
+    const source = getOfficialModelInfoSource();
+
+    if (!isTauriRuntime()) {
+      window.open(source.url, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    try {
+      await openExternalUrl(source.url);
+    } catch (error) {
+      setNotification({ kind: "error", message: `打开官方项目页失败：${String(error)}` });
+    }
+  }
+
+  async function handleImportModelPackage() {
+    if (!isTauriRuntime()) {
+      setNotification({
+        kind: "info",
+        message: "浏览器预览环境不支持导入模型包，请在桌面环境中测试。",
+      });
+      return;
+    }
+
+    try {
+      const selected = await open({
+        title: "选择模型包",
+        multiple: false,
+        filters: [
+          {
+            name: "Model Package",
+            extensions: ["zip"],
+          },
+        ],
+      });
+
+      if (!selected || Array.isArray(selected)) {
+        return;
+      }
+
+      const result = await installModelPackage(selected);
+      await recheckModelAvailability();
+      setNotification({
+        kind: "success",
+        message: `模型包已导入：${result.displayName} ${result.version}`,
+      });
+    } catch (error) {
+      const message = String(error);
+      const friendlyMessage = message.includes("至少为")
+        ? message
+        : message.includes("校验失败")
+          ? "模型包校验失败，请重新下载后再导入。"
+          : message.includes("manifest")
+            ? "模型包内容不完整，请确认下载的是正确的模型包。"
+            : `导入模型包失败：${message}`;
+      setNotification({ kind: "error", message: friendlyMessage });
+    }
+  }
+
+  async function recheckModelAvailability() {
+    try {
+      const status = await getModelStatus();
+      if (status.isAvailable) {
+        setNotification({ kind: "success", message: "已检测到智能修复模型。" });
+        if (!status.isLoaded && !status.isLoading) {
+          await preloadModel();
+        }
+        return;
+      }
+
+      setNotification({
+        kind: "info",
+        message: "还没有检测到智能修复模型。请先下载模型包并解压到模型目录。",
+      });
+    } catch (error) {
+      setNotification({ kind: "error", message: `重新检查模型失败：${String(error)}` });
+    }
+  }
+
+  function showModelInstallDialog(trigger: "preview" | "batch") {
+    setDecisionDialog({
+      title: "先安装智能修复模型",
+      description: (
+        <span>
+          默认安装包不包含智能修复模型。
+          <br />
+          请先从官方推荐下载地址获取模型包，导入后再继续{trigger === "preview" ? "生成预览" : "批量处理"}。
+          <br />
+          当前模型目录：
+          <br />
+          <code className="break-all text-xs text-ink">{modelInstallDir || "尚未初始化"}</code>
+        </span>
+      ),
+      cancelAction: {
+        label: "稍后再说",
+        tone: "neutral",
+        onClick: closeDecisionDialog,
+      },
+      secondaryAction: {
+        label: "导入模型包",
+        tone: "neutral",
+        onClick: () => {
+          void handleImportModelPackage();
+          closeDecisionDialog();
+        },
+      },
+      primaryAction: {
+        label: "下载并安装",
+        tone: "primary",
+        onClick: () => {
+          void handleDownloadModel();
+          closeDecisionDialog();
+        },
+      },
+    });
+  }
+
   function getSignatureForImage(image: ImportedImage) {
     return buildPreviewSignature({
       sourcePath: image.path,
@@ -1060,6 +1297,11 @@ export default function App() {
   }
 
   async function startPreviewForImage(image: ImportedImage, trigger: "manual" | "auto" | "batch") {
+    if (!isModelAvailable) {
+      showModelInstallDialog("preview");
+      return;
+    }
+
     if (!isTauriRuntime()) {
       setNotification({
         kind: "info",
@@ -1129,6 +1371,11 @@ export default function App() {
 
   async function runBatchForPaths(paths: string[]) {
     if (paths.length === 0 || importedImages.length === 0) {
+      return;
+    }
+
+    if (!isModelAvailable) {
+      showModelInstallDialog("batch");
       return;
     }
 
@@ -1421,6 +1668,10 @@ export default function App() {
   }
 
   function handlePreviewEntry() {
+    if (!isModelAvailable) {
+      showModelInstallDialog("preview");
+      return;
+    }
     if (!hasRegionSelection) {
       setNotification({ kind: "info", message: "当前没有选区，请先框选处理区域。" });
       return;
@@ -1547,21 +1798,24 @@ export default function App() {
       templates={templates}
       history={history}
       isImporting={isImporting}
+      hasCheckedModelStatus={hasCheckedModelStatus}
+      isModelAvailable={isModelAvailable}
       isModelLoaded={isModelLoaded}
       isModelLoading={isModelLoading}
       isModelFailed={isModelFailed}
+      preferredModelSource={preferredModelSource}
       modelLoadProgress={modelLoadProgress}
       onImportFiles={() => void startImportFlow("files", "builder", "replace")}
       onImportFolder={() => void startImportFlow("folder", "builder", "replace")}
       onOpenTemplates={() => setTemplatePicker({ source: "home" })}
       onUseTemplate={(id) => void handleUseTemplate(id)}
       onOpenHistory={() => setCurrentScreen("history")}
+      onOpenModelDir={() => void handleOpenModelDir()}
+      onDownloadModel={() => void handleDownloadModel()}
+      onImportModelPackage={() => void handleImportModelPackage()}
+      onOpenOfficialModelInfo={() => void handleOpenOfficialModelInfo()}
       onRetryModelLoad={async () => {
-        try {
-          await preloadModel();
-        } catch (error) {
-          console.error("重试模型加载失败:", error);
-        }
+        await recheckModelAvailability();
       }}
     />
   );
@@ -1701,8 +1955,15 @@ export default function App() {
     content = (
       <SettingsScreen
         appSettings={appSettings}
+        isModelAvailable={isModelAvailable}
+        modelInstallDir={modelInstallDir}
+        preferredModelSource={preferredModelSource}
         onUpdateSettings={updateAppSettings}
         onChooseDefaultOutputDir={() => void chooseDefaultOutputDir()}
+        onOpenModelDir={() => void handleOpenModelDir()}
+        onDownloadModel={(sourceId) => void handleDownloadModel(sourceId)}
+        onImportModelPackage={() => void handleImportModelPackage()}
+        onOpenOfficialModelInfo={() => void handleOpenOfficialModelInfo()}
       />
     );
   }
@@ -1783,6 +2044,12 @@ export default function App() {
           onClose={closeTemplatePicker}
         />
       ) : null}
+      <LoadingOverlay
+        visible={isModelPackageDownloading}
+        stage="model-package-download"
+        progress={modelPackageDownloadProgress ?? 0}
+        message="正在下载并安装兼容模型包，请稍候..."
+      />
         </div>
       )}
     </>

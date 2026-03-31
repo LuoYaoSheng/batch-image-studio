@@ -35,3 +35,6 @@ ndarray = { version = "0.17.2", features = ["std"] }
 # 使用 Python onnxruntime 通过脚本调用
 # tempfile 用于临时文件
 tempfile = "3"
+zip = { version = "0.6.6", default-features = false, features = ["deflate"] }
+sha2 = "0.10"
+reqwest = { version = "0.12.15", default-features = false, features = ["blocking", "rustls-tls"] }

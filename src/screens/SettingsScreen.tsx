@@ -1,18 +1,35 @@
 import type { AppSettings, CleanupMethod, FileNamingRule, OutputFormat, SizeHandlingMode } from "../types";
 import { applyFileNamingRule } from "../types";
+import { getCompatibleModelPackageSources, getOfficialModelInfoSource } from "../lib/modelPackageSources";
 
 // 示例文件名用于预览
 const EXAMPLE_FILES = ["IMG_20260327_001.jpg", "screenshot.png", "photo-2026.webp"];
 
 export function SettingsScreen({
   appSettings,
+  isModelAvailable,
+  modelInstallDir,
+  preferredModelSource,
   onUpdateSettings,
   onChooseDefaultOutputDir,
+  onOpenModelDir,
+  onDownloadModel,
+  onImportModelPackage,
+  onOpenOfficialModelInfo,
 }: {
   appSettings: AppSettings;
+  isModelAvailable: boolean;
+  modelInstallDir: string;
+  preferredModelSource: "local" | "bundled" | null;
   onUpdateSettings: (patch: Partial<AppSettings>) => void;
   onChooseDefaultOutputDir: () => void;
+  onOpenModelDir: () => void;
+  onDownloadModel: (sourceId?: "compatible-github") => void;
+  onImportModelPackage: () => void;
+  onOpenOfficialModelInfo: () => void;
 }) {
+  const modelPackageSources = getCompatibleModelPackageSources();
+  const officialModelInfoSource = getOfficialModelInfoSource();
   // 生成预览文件名列表
   const previewFilenames = EXAMPLE_FILES.map((file) =>
     applyFileNamingRule(
@@ -149,6 +166,87 @@ export function SettingsScreen({
               </div>
             </label>
           </div>
+        </div>
+      </section>
+
+      <section className="rounded-[28px] border border-line bg-white p-6 shadow-sm">
+        <h4 className="text-lg font-semibold text-ink">模型管理</h4>
+        <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="space-y-3">
+            <div className="rounded-[20px] border border-line bg-surface px-4 py-4">
+              <p className="text-xs text-muted">当前状态</p>
+              <p className="mt-2 text-sm font-medium text-ink">
+                {isModelAvailable ? "已检测到智能修复模型" : "尚未安装智能修复模型"}
+              </p>
+              <p className="mt-1 text-xs text-muted">
+                {preferredModelSource === "local"
+                  ? "当前优先使用本地安装模型"
+                  : preferredModelSource === "bundled"
+                    ? "当前使用应用内置模型"
+                    : "安装后才能使用预览和批量智能修复"}
+              </p>
+            </div>
+            <div className="rounded-[20px] border border-line bg-surface px-4 py-4">
+              <p className="text-xs text-muted">模型目录</p>
+              <p className="mt-2 break-all text-sm font-medium text-ink">{modelInstallDir || "尚未初始化"}</p>
+              <p className="mt-1 text-xs text-muted">
+                你可以直接下载安装本应用兼容模型包，或者先看官方项目说明，再手动导入模型包。
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <button
+              className="rounded-2xl bg-primary px-5 py-3 text-sm font-medium text-white"
+              type="button"
+              onClick={() => onDownloadModel()}
+            >
+              下载并安装
+            </button>
+            <button
+              className="rounded-2xl border border-primary bg-white px-5 py-3 text-sm font-medium text-primary"
+              type="button"
+              onClick={onImportModelPackage}
+            >
+              导入模型包
+            </button>
+            <button
+              className="rounded-2xl border border-line bg-white px-5 py-3 text-sm font-medium"
+              type="button"
+              onClick={onOpenModelDir}
+            >
+              打开模型目录
+            </button>
+            <button
+              className="rounded-2xl border border-line bg-white px-5 py-3 text-sm font-medium"
+              type="button"
+              onClick={onOpenOfficialModelInfo}
+            >
+              查看官方项目
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-3 xl:grid-cols-2">
+          {modelPackageSources.map((source) => (
+            <button
+              key={source.id}
+              className="rounded-[20px] border border-line bg-surface px-4 py-4 text-left"
+              type="button"
+              onClick={() => onDownloadModel(source.id)}
+            >
+              <p className="text-sm font-medium text-ink">{source.label}</p>
+              <p className="mt-1 text-xs text-muted">{source.description}</p>
+            </button>
+          ))}
+          <button
+            className="rounded-[20px] border border-line bg-surface px-4 py-4 text-left"
+            type="button"
+            onClick={onOpenOfficialModelInfo}
+          >
+            <p className="text-sm font-medium text-ink">{officialModelInfoSource.label}</p>
+            <p className="mt-1 text-xs text-muted">{officialModelInfoSource.description}</p>
+          </button>
         </div>
       </section>
     </div>
