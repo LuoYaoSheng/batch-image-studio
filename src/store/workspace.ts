@@ -14,6 +14,8 @@ import type {
   AppSettings,
   BatchResult,
   CleanupMethod,
+  EmptyStateType,
+  ErrorDetail,
   HistoryEntry,
   ImportDestination,
   ImportSummary,
@@ -23,6 +25,8 @@ import type {
   Region,
   SizeHandlingMode,
   Template,
+  Toast,
+  ToastKind,
 } from "../types";
 const DEFAULT_BLUR_SIGMA = 10;
 const DEFAULT_FILL_COLOR = "#f7f9fc";
@@ -80,7 +84,9 @@ type WorkspaceState = {
   isPreviewLoading: boolean;
   isBatchRunning: boolean;
   notification: { kind: "info" | "success" | "error"; message: string } | null;
+  toasts: Toast[];
   lastBatchResult: BatchResult | null;
+  globalError: ErrorDetail | null;
   isModelLoading: boolean;
   isModelLoaded: boolean;
   isModelFailed: boolean;
@@ -108,6 +114,14 @@ type WorkspaceState = {
   setPreviewLoading: (value: boolean) => void;
   setBatchRunning: (value: boolean) => void;
   setNotification: (value: { kind: "info" | "success" | "error"; message: string } | null) => void;
+  addToast: (kind: ToastKind, message: string, duration?: number, action?: Toast["action"]) => string;
+  removeToast: (id: string) => void;
+  clearToasts: () => void;
+  showSuccess: (message: string) => string;
+  showError: (message: string, duration?: number) => string;
+  showInfo: (message: string) => string;
+  showWarning: (message: string) => string;
+  setGlobalError: (error: ErrorDetail | null) => void;
   applyImportSummary: (summary: ImportSummary) => void;
   appendImportSummary: (summary: ImportSummary) => void;
   selectImage: (id: string) => void;
@@ -119,6 +133,7 @@ type WorkspaceState = {
   saveTemplate: (name?: string) => Template | null;
   applyTemplate: (id: string) => void;
   deleteTemplate: (id: string) => void;
+  duplicateTemplate: (id: string) => void;
   addHistory: (entry: HistoryEntry) => void;
   updateAppSettings: (patch: Partial<AppSettings>) => void;
   setModelLoading: (value: boolean) => void;
@@ -168,7 +183,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     isPreviewLoading: false,
     isBatchRunning: false,
     notification: null,
+    toasts: [],
     lastBatchResult: null,
+    globalError: null,
     isModelLoading: false,
     isModelLoaded: false,
     isModelFailed: false,
@@ -297,6 +314,37 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     setPreviewLoading: (isPreviewLoading) => set({ isPreviewLoading }),
     setBatchRunning: (isBatchRunning) => set({ isBatchRunning }),
     setNotification: (notification) => set({ notification }),
+    addToast: (kind, message, duration, action) => {
+      const id = crypto.randomUUID();
+      const toast: Toast = {
+        id,
+        kind,
+        message,
+        duration: duration ?? (kind === "error" ? 6000 : kind === "success" ? 3000 : 4000),
+        action,
+        createdAt: Date.now(),
+      };
+      set((state) => ({ toasts: [toast, ...state.toasts] }));
+
+      // Auto-remove after duration
+      if (toast.duration && toast.duration > 0) {
+        setTimeout(() => {
+          get().removeToast(id);
+        }, toast.duration);
+      }
+
+      return id;
+    },
+    removeToast: (id) =>
+      set((state) => ({
+        toasts: state.toasts.filter((t) => t.id !== id),
+      })),
+    clearToasts: () => set({ toasts: [] }),
+    showSuccess: (message) => get().addToast("success", message),
+    showError: (message, duration) => get().addToast("error", message, duration ?? 6000),
+    showInfo: (message) => get().addToast("info", message),
+    showWarning: (message) => get().addToast("warning", message),
+    setGlobalError: (globalError) => set({ globalError }),
     applyImportSummary: (summary) =>
       set((state) => ({
         importedImages: summary.items,
@@ -502,6 +550,37 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           currentTemplateId: state.currentTemplateId === id ? null : state.currentTemplateId,
           currentTemplateName: state.currentTemplateId === id ? "" : state.currentTemplateName,
           isTemplateDirty: state.currentTemplateId === id ? false : state.isTemplateDirty,
+        };
+      }),
+    duplicateTemplate: (id) =>
+      set((state) => {
+        const template = state.templates.find((item) => item.id === id);
+        if (!template) {
+          return state;
+        }
+
+        // 生成唯一的副本名称
+        let baseName = template.name.replace(/ - 副本\d*$/, "").trim();
+        let copyName = `${baseName} - 副本`;
+        let counter = 1;
+        while (state.templates.some((t) => t.name === copyName)) {
+          copyName = `${baseName} - 副本${counter}`;
+          counter++;
+        }
+
+        const duplicatedTemplate: Template = {
+          ...template,
+          id: `template-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          name: copyName,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+        const nextTemplates = [duplicatedTemplate, ...state.templates];
+        savePersistedTemplates(nextTemplates);
+
+        return {
+          templates: nextTemplates,
         };
       }),
     addHistory: (entry) => {

@@ -80,31 +80,46 @@ export function HomeScreen({
       </div>
 
       {hasCheckedModelStatus && !isModelAvailable ? (
-        <section className="rounded-[24px] border border-[#f0d8a8] bg-[#fff6df] px-5 py-4">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <p className="text-sm font-medium text-[#8a5b00]">当前还没有安装智能修复模型</p>
-              <p className="mt-1 text-xs text-[#8a5b00]">
-                先下载模型包，再点击“导入模型包”，以后就能一直使用预览和批量智能修复。
+        <section className="rounded-[24px] border border-[#f0d8a8] bg-[#fff6df] px-6 py-5">
+          <div className="flex flex-wrap items-start justify-between gap-5">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <svg className="h-5 w-5 text-[#8a5b00]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-sm font-semibold text-[#8a5b00]">首次使用需要下载 AI 模型</p>
+              </div>
+              <p className="mt-2 text-xs text-[#8a5b00] leading-relaxed">
+                模型大小约 <span className="font-semibold">200MB</span>，下载后保存在本地，仅需下载一次。
               </p>
+              <div className="mt-3 space-y-1.5 rounded-[20px] border border-[#f0d8a8]/50 bg-white/60 px-4 py-3">
+                <div className="flex items-center gap-2 text-xs text-[#8a5b00]">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">1</span>
+                  <span>点击"一键下载"自动下载并安装</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-[#8a5b00]">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">2</span>
+                  <span>已有模型包？点击"导入模型包"</span>
+                </div>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <button
-                className="rounded-2xl bg-primary px-4 py-2.5 text-sm font-medium text-white"
+                className="rounded-2xl bg-primary px-5 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-primary/90 transition"
                 type="button"
                 onClick={onDownloadModel}
               >
-                下载并安装
+                一键下载
               </button>
               <button
-                className="rounded-2xl border border-primary bg-white px-4 py-2.5 text-sm font-medium text-primary"
+                className="rounded-2xl border border-primary bg-white px-4 py-2.5 text-sm font-medium text-primary hover:bg-primary/5 transition"
                 type="button"
                 onClick={onImportModelPackage}
               >
                 导入模型包
               </button>
               <button
-                className="rounded-2xl border border-[#f0d8a8] bg-white px-4 py-2.5 text-sm font-medium text-primary"
+                className="rounded-2xl border border-[#f0d8a8] bg-white/80 px-4 py-2.5 text-sm font-medium text-primary hover:bg-white transition"
                 type="button"
                 onClick={onOpenOfficialModelInfo}
               >
@@ -270,7 +285,7 @@ export function HomeScreen({
             <div>
               <p className="text-xs uppercase tracking-[0.18em] text-primary-strong">Primary Action</p>
               <p className="mt-2 text-sm font-medium text-ink">先把图片放进来，后面的步骤应用会一步步带你走</p>
-              <p className="mt-1 text-xs text-muted">如果不确定，先导入图片；如果已经有做法，再选“选择做法”。</p>
+              <p className="mt-1 text-xs text-muted">如果不确定，先导入图片；如果已经有做法，再选"选择做法"。</p>
             </div>
 
             <div className="flex items-center gap-3">

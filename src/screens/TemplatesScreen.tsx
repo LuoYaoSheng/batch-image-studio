@@ -8,12 +8,14 @@ export function TemplatesScreen({
   onApply,
   onEdit,
   onDelete,
+  onCopy,
   onCreateNew,
 }: {
   templates: Template[];
   onApply: (id: string) => void;
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
+  onCopy?: (id: string) => void;
   onCreateNew: () => void;
 }) {
   const [query, setQuery] = useState("");
@@ -79,6 +81,7 @@ export function TemplatesScreen({
               template={template}
               onApply={() => onApply(template.id)}
               onEdit={() => onEdit(template.id)}
+              onCopy={onCopy ? () => onCopy(template.id) : undefined}
               onDelete={() => handleDeleteClick(template)}
             />
           ))}

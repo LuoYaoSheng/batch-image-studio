@@ -281,6 +281,7 @@ export default function App() {
     isPreviewLoading,
     isBatchRunning,
     notification,
+    toasts,
     lastBatchResult,
     isModelLoading,
     isModelLoaded,
@@ -307,6 +308,7 @@ export default function App() {
     setPreviewLoading,
     setBatchRunning,
     setNotification,
+    removeToast,
     applyImportSummary,
     appendImportSummary,
     selectImage,
@@ -318,6 +320,7 @@ export default function App() {
     saveTemplate,
     applyTemplate,
     deleteTemplate,
+    duplicateTemplate,
     addHistory,
     updateAppSettings,
     setModelLoading,
@@ -1896,7 +1899,7 @@ export default function App() {
         selectedImageId={selectedImageId}
         selectedImage={selectedImage}
         previewTaskStateByImageId={previewTaskStateByImageId}
-        beforeSrc={selectedImage?.thumbnailDataUrl ?? null}
+        beforeSrc={selectedImage?.previewDataUrl ?? null}
         afterSrc={processedPreviewDisplaySrc}
         currentTemplateName={currentTemplateName}
         cleanupMethod={cleanupMethod}
@@ -1905,10 +1908,12 @@ export default function App() {
         loadingMessage={selectedPreviewTaskState?.message}
         canStartBatch={previewCanStartBatch}
         batchReadyHint={previewBatchReadyHint}
+        outputDir={outputDir || undefined}
         onSelectImage={handlePreviewSelectImage}
         onOpenTemplates={() => setTemplatePicker({ source: "preview" })}
         onStartBatch={() => void runBatch()}
         onBackToBuilder={() => setCurrentScreen("builder")}
+        onChangeOutputDir={() => void chooseOutputDir()}
       />
     );
   } else if (currentScreen === "batch") {
@@ -1932,6 +1937,10 @@ export default function App() {
         templates={templates}
         onApply={(id) => void handleUseTemplate(id)}
         onEdit={handleEditTemplate}
+        onCopy={(id) => {
+          duplicateTemplate(id);
+          setNotification({ kind: "success", message: "模板已复制，可在模板列表中找到。" });
+        }}
         onDelete={(id) => {
           deleteTemplate(id);
           setNotification({ kind: "success", message: "模板已删除。" });
@@ -2007,6 +2016,26 @@ export default function App() {
         currentScreen={currentScreen}
         onNavigate={navigateWithGuard}
         title={currentScreenMeta.title}
+        toasts={toasts}
+        onRemoveToast={removeToast}
+        onShortcutSaveTemplate={() => {
+          // 只在 builder 页面允许保存模板
+          if (currentScreen === "builder") {
+            const saved = saveTemplate();
+            if (saved) {
+              setNotification({ kind: "success", message: `模板 "${saved.name}" 已保存。` });
+            } else {
+              setNotification({ kind: "error", message: "请先填写模板名称并完成选区。" });
+            }
+          }
+        }}
+        onShortcutDeleteImage={() => {
+          // 只在 builder 或 preview 页面允许删除图片
+          if ((currentScreen === "builder" || currentScreen === "preview") && selectedImageId) {
+            removeImage(selectedImageId);
+            setNotification({ kind: "info", message: "图片已移除。" });
+          }
+        }}
         subtitle={
           bootstrapState ? `${currentScreenMeta.subtitle} · ${bootstrapState.platform} · ${bootstrapState.appVersion}` : currentScreenMeta.subtitle
         }

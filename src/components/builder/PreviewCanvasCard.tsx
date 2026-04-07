@@ -406,17 +406,35 @@ export function PreviewCanvasCard({
         onPointerDown={handleCanvasPointerDown}
       >
         {image ? (
-          <img
-            alt={title}
-            className={`h-[320px] w-full object-contain transition duration-300 ${
-              loading ? "scale-[0.985] opacity-45" : "opacity-100"
-            }`}
-            style={{ height: `${canvasHeight}px` }}
-            src={image}
-          />
+          <>
+            <img
+              alt={title}
+              className={`h-[320px] w-full object-contain transition duration-300 ${
+                loading ? "scale-[0.985] opacity-45" : editable && !region ? "opacity-60" : "opacity-100"
+              }`}
+              style={{ height: `${canvasHeight}px` }}
+              src={image}
+            />
+            {/* 空状态引导 - 有图片但没选区时显示 */}
+            {editable && !region && !loading && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="flex flex-col items-center gap-3 rounded-2xl bg-white/95 px-6 py-5 shadow-lg">
+                  <svg className="h-8 w-8 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
+                  </svg>
+                  <p className="text-sm font-semibold text-ink">点击图片创建选区</p>
+                  <p className="text-xs text-muted">在图片上点击，标记需要处理的位置</p>
+                </div>
+              </div>
+            )}
+          </>
         ) : (
-          <div className="flex items-center justify-center text-sm text-muted" style={{ height: `${canvasHeight}px` }}>
-            暂无图像
+          <div className="flex flex-col items-center justify-center gap-3 text-sm text-muted" style={{ height: `${canvasHeight}px` }}>
+            <svg className="h-10 w-10 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            <p>暂无图像</p>
+            <p className="text-xs">请先导入图片</p>
           </div>
         )}
         {image && region && selected ? (
@@ -512,11 +530,18 @@ export function PreviewCanvasCard({
         ) : null}
       </div>
       {editable ? (
-        <p className="mt-3 text-xs text-muted">
-          {region
-            ? "拖动四角或四边手柄可调整大小，拖动框内可移动位置。选中后可使用方向键微调，Shift+方向键调整大小。"
-            : "当前没有选区。点击图片可快速创建一个区域，再继续调整。"}
-        </p>
+        <div className="mt-3 flex items-center justify-between text-xs text-muted">
+          <p>
+            {region
+              ? "拖动圆点调整大小，拖动框内移动位置"
+              : "点击图片快速创建选区，或使用右侧精确调整"}
+          </p>
+          {region && (
+            <p className="text-xs text-muted/70">
+              方向键移动 · Shift+方向键调整大小
+            </p>
+          )}
+        </div>
       ) : null}
     </section>
   );

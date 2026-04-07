@@ -27,6 +27,7 @@ export type ImportedImage = {
   format: string;
   fileSize: number;
   thumbnailDataUrl: string;
+  previewDataUrl: string;
 };
 
 export type ImportSummary = {
@@ -257,3 +258,43 @@ export type ModelPackageTaskEvent = {
   result?: InstallModelPackageResponse | null;
   error?: string | null;
 };
+
+// Feedback system types
+export type ToastKind = "info" | "success" | "error" | "warning";
+
+export type Toast = {
+  id: string;
+  kind: ToastKind;
+  message: string;
+  duration?: number;
+  action?: {
+    label: string;
+    onClick: () => void;
+  };
+  createdAt: number;
+};
+
+export type ErrorCode =
+  | "MODEL_NOT_LOADED"
+  | "MODEL_LOAD_FAILED"
+  | "IMAGE_READ_FAILED"
+  | "BATCH_PROCESSING_FAILED"
+  | "OUTPUT_DIR_NOT_ACCESSIBLE"
+  | "TEMPLATE_SAVE_FAILED"
+  | "NETWORK_ERROR"
+  | "UNKNOWN_ERROR";
+
+export type ErrorDetail = {
+  code: ErrorCode;
+  message: string;
+  suggestion?: string;
+  retryAction?: () => void;
+};
+
+export type EmptyStateType =
+  | "no-images"
+  | "no-templates"
+  | "no-selection"
+  | "no-preview"
+  | "no-history"
+  | "no-model";

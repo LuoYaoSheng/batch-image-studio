@@ -22,8 +22,16 @@ const shortcutGroups: ShortcutGroup[] = [
   {
     title: "操作",
     shortcuts: [
+      { keys: ["⌘", "S"], description: "保存模板" },
       { keys: ["⌘", "/"], description: "显示快捷键帮助" },
       { keys: ["Esc"], description: "关闭对话框" },
+    ],
+  },
+  {
+    title: "图片管理",
+    shortcuts: [
+      { keys: ["Delete"], description: "删除当前图片" },
+      { keys: ["Backspace"], description: "删除当前图片" },
     ],
   },
   {

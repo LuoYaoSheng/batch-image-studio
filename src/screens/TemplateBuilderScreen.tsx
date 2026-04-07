@@ -261,8 +261,26 @@ export function TemplateBuilderScreen({
             <div>
               <span className="mb-2 block text-sm font-medium text-ink">适配与处理</span>
               <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <p className="text-xs text-muted">怎么适配不同尺寸</p>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-muted">怎么适配不同尺寸</p>
+                    <button
+                      type="button"
+                      className="text-[10px] text-primary hover:underline"
+                      onClick={() => {
+                        // 简单的提示切换逻辑
+                        const el = document.getElementById('size-hint');
+                        el?.classList.toggle('hidden');
+                      }}
+                    >
+                      什么是这个？
+                    </button>
+                  </div>
+                  <div id="size-hint" className="hidden rounded-[16px] bg-surface px-3 py-2 text-[10px] text-muted leading-relaxed">
+                    <p>• <span className="font-medium text-ink">贴右下角：</span>水印总是在图片右下角</p>
+                    <p>• <span className="font-medium text-ink">跟随比例：</span>按图片尺寸比例缩放位置</p>
+                    <p>• <span className="font-medium text-ink">固定位置：</span>位置固定不变，图片尺寸不同可能偏移</p>
+                  </div>
                   <div className="grid grid-cols-3 gap-1">
                     {[
                       { id: "bottomRight", label: "贴右下角" },
@@ -283,8 +301,25 @@ export function TemplateBuilderScreen({
                   </div>
                 </div>
 
-                <div className="space-y-1.5">
-                  <p className="text-xs text-muted">怎么处理这块内容</p>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-muted">怎么处理这块内容</p>
+                    <button
+                      type="button"
+                      className="text-[10px] text-primary hover:underline"
+                      onClick={() => {
+                        const el = document.getElementById('method-hint');
+                        el?.classList.toggle('hidden');
+                      }}
+                    >
+                      什么是这个？
+                    </button>
+                  </div>
+                  <div id="method-hint" className="hidden rounded-[16px] bg-surface px-3 py-2 text-[10px] text-muted leading-relaxed">
+                    <p>• <span className="font-medium text-ink">智能修复：</span>AI 自动填充，效果最自然</p>
+                    <p>• <span className="font-medium text-ink">直接盖住：</span>用纯色覆盖，简单快速</p>
+                    <p>• <span className="font-medium text-ink">裁掉这一块：</span>直接裁剪掉选区内容</p>
+                  </div>
                   <div className="grid grid-cols-3 gap-1">
                     {[
                       { id: "blur", label: "智能修复" },

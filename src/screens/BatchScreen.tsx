@@ -30,6 +30,22 @@ export function BatchScreen({
   const isComplete = result !== null && !isBatchRunning;
   const isAllSuccess = isComplete && result.failedCount === 0;
 
+  // 计算预计剩余时间和处理速度
+  const calculateEstimates = () => {
+    if (!progress || progress.completed === 0 || !startedAt) {
+      return { remaining: null, speed: null };
+    }
+    const remaining = progress.total - progress.completed;
+    const avgTimePerItem = elapsed / progress.completed;
+    const remainingTime = Math.round(avgTimePerItem * remaining);
+    // 计算每分钟处理速度
+    const elapsedMinutes = elapsed / 60000;
+    const speed = elapsedMinutes > 0 ? Math.round(progress.completed / elapsedMinutes) : null;
+    return { remaining: remainingTime, speed };
+  };
+
+  const { remaining: remainingTime, speed: processSpeed } = calculateEstimates();
+
   return (
     <div className="grid min-h-[780px] grid-rows-[auto_minmax(0,1fr)_auto] gap-4">
       <section
@@ -102,6 +118,28 @@ export function BatchScreen({
                 <p className="mt-2 truncate text-sm font-medium text-ink">{result?.outputDir ?? "未生成"}</p>
               </div>
             </div>
+
+            {/* 额外信息：剩余时间和处理速度 */}
+            {(remainingTime !== null || processSpeed !== null) && (
+              <div className="mt-3 flex flex-wrap gap-4 text-xs text-muted">
+                {remainingTime !== null && remainingTime > 0 && (
+                  <div className="flex items-center gap-1">
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>预计剩余：{formatDuration(remainingTime)}</span>
+                  </div>
+                )}
+                {processSpeed !== null && processSpeed > 0 && (
+                  <div className="flex items-center gap-1">
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    <span>处理速度：约 {processSpeed} 张/分钟</span>
+                  </div>
+                )}
+              </div>
+            )}
           </>
         ) : (
           <div className="mt-5 grid gap-4 md:grid-cols-3">

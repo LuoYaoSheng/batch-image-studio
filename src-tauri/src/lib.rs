@@ -52,6 +52,8 @@ struct ImportedImage {
   format: String,
   file_size: u64,
   thumbnail_data_url: String,
+  #[serde(rename = "previewDataUrl")]
+  preview_data_url: String,
 }
 
 #[derive(Serialize)]
@@ -803,6 +805,23 @@ fn encode_thumbnail_data_url(image: &DynamicImage) -> Result<String> {
 
 fn load_image(path: &Path) -> Result<DynamicImage> {
   image::open(path).with_context(|| format!("无法读取图片: {}", path.display()))
+}
+
+/// 按比例缩放图片，使最大边不超过 max_dimension
+fn resize_image_keep_aspect(image: &DynamicImage, max_dimension: u32) -> DynamicImage {
+  let (width, height) = image.dimensions();
+  let max_side = width.max(height);
+
+  if max_side <= max_dimension {
+    // 图片已经足够小，直接返回克隆
+    return image.clone();
+  }
+
+  let ratio = max_dimension as f32 / max_side as f32;
+  let new_width = (width as f32 * ratio).round() as u32;
+  let new_height = (height as f32 * ratio).round() as u32;
+
+  image.resize(new_width, new_height, FilterType::Lanczos3)
 }
 
 fn parse_hex_color(value: &str) -> Result<Rgba<u8>> {
@@ -2437,9 +2456,16 @@ fn import_paths(paths: Vec<String>) -> Result<ImportSummary, String> {
     match load_image(&path) {
       Ok(image) => {
         let metadata = fs::metadata(&path).map_err(|err| err.to_string())?;
+        // 缩略图：用于列表显示，小尺寸
         let thumbnail = image.thumbnail(160, 160);
         let thumbnail_data_url =
           encode_thumbnail_data_url(&thumbnail).map_err(|err| err.to_string())?;
+
+        // 预览图：用于对比查看，高质量（最大边 1200px）
+        let preview = resize_image_keep_aspect(&image, 1200);
+        let preview_data_url =
+          encode_jpeg_data_url(&preview, 90).map_err(|err| err.to_string())?;
+
         let extension = path
           .extension()
           .and_then(|ext| ext.to_str())
@@ -2459,6 +2485,7 @@ fn import_paths(paths: Vec<String>) -> Result<ImportSummary, String> {
           format: extension,
           file_size: metadata.len(),
           thumbnail_data_url,
+          preview_data_url,
         });
         log::info!(
           "导入图片完成: {} ({}x{}, {} ms)",
