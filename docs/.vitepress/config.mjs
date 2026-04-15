@@ -6,6 +6,11 @@ export default defineConfig({
   lang: 'zh-CN',
   cleanUrls: true,
   ignoreDeadLinks: true,
+  vite: {
+    css: {
+      postcss: {},
+    },
+  },
   themeConfig: {
     nav: [
       { text: '首页', link: '/' },
