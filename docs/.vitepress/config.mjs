@@ -53,7 +53,6 @@ export default defineConfig({
     ],
     socialLinks: [
       { icon: 'github', link: 'https://github.com/LuoYaoSheng/batch-image-studio' },
-      { icon: 'github', link: 'https://gitee.com/luoyaosheng/lys-image-studio', ariaLabel: 'Gitee' },
     ],
   },
 });

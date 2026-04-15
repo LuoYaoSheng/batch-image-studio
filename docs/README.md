@@ -1,51 +1,60 @@
-# Batch Image Studio 文档
+# Batch Image Studio
 
-## 目录结构
+模板驱动的桌面端图片局部批量处理工具，基于 LaMa AI 模型实现智能水印去除。
 
-### [../ARCHITECTURE.md](../ARCHITECTURE.md)
-当前系统总览与流程图
+## 特性
 
-- 页面职责与主流程
-- 前后端分层关系
-- 导入 / 预览 / 批处理时序图
-- 关键状态约束与维护建议
+- 🎯 **模板驱动** — 创建一次模板，复用于同类图片
+- 🤖 **AI 智能修复** — 基于 LaMa 模型的图像修复
+- 🖼️ **多种处理方式** — AI 修复、纯色填充、裁切
+- 📐 **灵活定位** — 右下角锚定、按比例定位、固定像素
+- ⚡ **批量处理** — 支持批量导入和处理图片
+- 🔒 **本地处理** — 所有处理在本地完成，保护隐私
 
-### [install.md](./install.md)
-安装与分发说明
+## 快速开始
 
-- GitHub Releases 下载入口
-- macOS / Windows / Linux 安装步骤
-- 常见安装问题排查
+👉 请先阅读 [安装指南](/install) 下载并安装应用。
 
-### [screenshots/](./screenshots/)
-README 展示截图
+## 产品截图
 
-- 首页界面
-- 模板构建
-- 效果预览
-- 批量执行
+<div class="screenshot-grid">
+  <img src="/screenshots/home.png" alt="首页" />
+  <img src="/screenshots/builder.png" alt="模板构建" />
+  <img src="/screenshots/preview.png" alt="效果预览" />
+  <img src="/screenshots/batch.png" alt="批量执行" />
+</div>
 
-### [prd/](./prd/)
-产品需求文档
+## 使用流程
 
-- `PRD.md` - 产品需求文档
+```
+导入图片 → 框选处理区域 → 确认效果 → 批量处理
+```
 
-### [ux/](./ux/)
-用户体验与交互设计
+## 更多资源
 
-- `页面交互操作草稿.md` - 页面交互设计草稿
-- `补充稿.md` - 需求补充说明
+- [安装指南](/install) — macOS / Windows / Linux 安装步骤
+- [UX 组件指南](/UX_COMPONENTS_GUIDE) — 开发文档
+- [GitHub](https://github.com/LuoYaoSheng/batch-image-studio) — 源码与 Issue
 
-### [prompts/](./prompts/)
-AI 提示词配置
-
-- `stitch提示词.md` - Stitch AI 提示词
-- `stitch提示词-完整版.md` - 完整版提示词
-
-### [plans/](./plans/)
-项目计划与设计文档
-
-- MVP 计划
-- 交互重设计分析
-- 工作流序列图
-- ONNX 本地推理设计
+<style>
+.screenshot-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin: 24px 0;
+}
+.screenshot-grid img {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--vp-c-divider);
+  transition: transform 0.2s;
+}
+.screenshot-grid img:hover {
+  transform: scale(1.02);
+}
+@media (max-width: 640px) {
+  .screenshot-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
