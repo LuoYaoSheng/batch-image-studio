@@ -442,7 +442,10 @@ export function PreviewCanvasCard({
             className={`absolute select-none ${
               editable ? "cursor-move focus:outline-none" : "pointer-events-none"
             }`}
+            data-region-overlay
             tabIndex={editable ? 0 : undefined}
+            role="application"
+            aria-label="处理区域框，可拖动移动或使用手柄调整大小"
             style={{
               left: `${contained.left + region.x * contained.width}px`,
               top: `${contained.top + region.y * contained.height}px`,

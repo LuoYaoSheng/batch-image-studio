@@ -76,9 +76,12 @@ export const ImageSampleList = memo(function ImageSampleList({
   onRemove?: (id: string) => void;
   previewTaskStateByImageId: Record<string, PreviewTaskState | undefined>;
 }) {
+  // Sort items by filename for consistent display order
+  const sortedItems = items.length > 1 ? [...items].sort((a, b) => a.name.localeCompare(b.name)) : items;
+
   return (
     <div className="space-y-3">
-      {items.map((item) => (
+      {sortedItems.map((item) => (
         <ImageSampleRow
           key={item.id}
           item={item}

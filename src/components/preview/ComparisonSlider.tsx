@@ -4,27 +4,65 @@ const STEP_SIZE = 0.05;
 const MIN_POSITION = 0.05;
 const MAX_POSITION = 0.95;
 
+/**
+ * 带兜底的图片组件：优先加载高清 src，失败后回退到 fallback（缩略图 data URL）
+ */
+function FallbackImage({
+  src,
+  fallback,
+  alt,
+  className,
+}: {
+  src: string | undefined;
+  fallback?: string | null;
+  alt: string;
+  className?: string;
+}) {
+  const [errored, setErrored] = useState(false);
+  const effectiveSrc = errored && fallback ? fallback : src;
+
+  return (
+    <img
+      alt={alt}
+      className={className}
+      draggable={false}
+      onDragStart={(e) => e.preventDefault()}
+      src={effectiveSrc}
+      onError={() => {
+        if (!errored && fallback) {
+          setErrored(true);
+        }
+      }}
+    />
+  );
+}
+
 export function ComparisonSlider({
   beforeSrc,
   afterSrc,
+  beforeFallback,
   beforeLabel = "原图",
   afterLabel = "处理后",
+  isLoading = false,
+  loadingMessage,
 }: {
   beforeSrc: string | null;
   afterSrc: string | null;
+  beforeFallback?: string | null;
   beforeLabel?: string;
   afterLabel?: string;
+  isLoading?: boolean;
+  loadingMessage?: string;
 }) {
   const frameRef = useRef<HTMLDivElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
   const [position, setPosition] = useState(0.5);
   const [isDragging, setIsDragging] = useState(false);
-  const hasBefore = Boolean(beforeSrc);
-  const hasAfter = Boolean(afterSrc);
+  const canUseSlider = Boolean(beforeSrc) && Boolean(afterSrc);
 
   const updatePositionFromClientX = (clientX: number) => {
     const frame = frameRef.current;
     if (!frame) return;
-
     const bounds = frame.getBoundingClientRect();
     const ratio = (clientX - bounds.left) / bounds.width;
     setPosition(Math.max(MIN_POSITION, Math.min(MAX_POSITION, ratio)));
@@ -32,16 +70,10 @@ export function ComparisonSlider({
 
   useEffect(() => {
     if (!isDragging) return;
-
-    const handleMove = (event: PointerEvent) => {
-      updatePositionFromClientX(event.clientX);
-    };
-
+    const handleMove = (event: PointerEvent) => updatePositionFromClientX(event.clientX);
     const handleUp = () => setIsDragging(false);
-
     window.addEventListener("pointermove", handleMove);
     window.addEventListener("pointerup", handleUp);
-
     return () => {
       window.removeEventListener("pointermove", handleMove);
       window.removeEventListener("pointerup", handleUp);
@@ -67,112 +99,158 @@ export function ComparisonSlider({
     setIsDragging(true);
   };
 
-  // 固定高度的容器，不会因内容变化而变化
-  const containerClass = "h-[560px] w-full rounded-[24px] border border-line bg-white";
-
-  // 无内容时的占位状态
-  if (!hasBefore && !hasAfter) {
+  // ── 加载中状态 ──────────────────────────────────────────────────────
+  if (isLoading) {
     return (
-      <div className={`${containerClass} border-dashed bg-surface flex items-center justify-center`}>
-        <p className="text-sm text-muted">生成预览后会显示对比效果</p>
-      </div>
-    );
-  }
-
-  // 只有原图的情况
-  if (hasBefore && !hasAfter) {
-    return (
-      <div className={containerClass}>
-        <div className="relative h-full w-full overflow-hidden rounded-inherit bg-surface">
-          <img
-            alt={beforeLabel}
-            className="h-full w-full select-none object-contain"
-            draggable={false}
-            onDragStart={(e) => e.preventDefault()}
-            src={beforeSrc ?? undefined}
-          />
-          <div className="absolute left-4 top-4 rounded-full bg-white/96 px-3 py-1 text-xs font-medium text-muted shadow-sm">
-            {beforeLabel}
+      <section className="rounded-[28px] border border-primary/20 bg-white p-6 shadow-sm">
+        <div className="flex h-[480px] items-center justify-center">
+          <div className="flex flex-col items-center gap-4">
+            <div className="h-10 w-10 animate-spin rounded-full border-3 border-primary/20 border-t-primary" />
+            <div className="text-center">
+              <p className="text-base font-medium text-primary-strong">正在生成预览...</p>
+              {loadingMessage ? (
+                <p className="mt-2 text-sm text-muted">{loadingMessage}</p>
+              ) : (
+                <p className="mt-2 text-sm text-muted">模型正在处理图片，通常需要几秒钟</p>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      </section>
     );
   }
 
-  // 对比滑杆（核心功能）
+  // ── 无图状态 ────────────────────────────────────────────────────────
+  if (!beforeSrc && !afterSrc) {
+    return (
+      <section className="rounded-[28px] border border-dashed border-line bg-surface p-6 shadow-sm">
+        <div className="flex h-[480px] items-center justify-center text-sm text-muted">
+          暂无预览内容
+        </div>
+      </section>
+    );
+  }
+
+  // ── 只有处理结果（无原图）── 直接展示 ────────────────────────────────
+  if (!canUseSlider && afterSrc) {
+    return (
+      <section className="rounded-[28px] border border-primary/20 bg-white shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-line">
+          <div className="rounded-full bg-primary px-3 py-1 text-xs font-medium text-white">
+            {afterLabel}
+          </div>
+          <p className="text-xs text-muted">处理结果预览</p>
+        </div>
+        <div className="flex items-center justify-center bg-surface">
+          <img
+            alt={afterLabel}
+            className="max-h-[520px] w-full select-none object-contain"
+            draggable={false}
+            onDragStart={(e) => e.preventDefault()}
+            src={afterSrc}
+          />
+        </div>
+      </section>
+    );
+  }
+
+  // ── 只有原图（未处理）── 直接展示 ──────────────────────────────────
+  if (!canUseSlider && beforeSrc) {
+    return (
+      <section className="rounded-[28px] border border-line bg-white shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-line">
+          <div className="rounded-full bg-surface px-3 py-1 text-xs font-medium text-muted">
+            {beforeLabel}
+          </div>
+          <p className="text-xs text-muted">原始图片</p>
+        </div>
+        <div className="flex items-center justify-center bg-surface">
+          <FallbackImage
+            src={beforeSrc}
+            fallback={beforeFallback}
+            alt={beforeLabel}
+            className="max-h-[520px] w-full select-none object-contain"
+          />
+        </div>
+      </section>
+    );
+  }
+
+  // ── 滑杆对比视图（主视图）──────────────────────────────────────────
   return (
-    <div className={containerClass}>
+    <section className="rounded-[28px] border border-line bg-white shadow-sm overflow-hidden">
+      {/* 顶部信息栏 */}
+      <div className="flex items-center justify-between px-5 py-3 border-b border-line">
+        <div className="flex items-center gap-3">
+          <div className="rounded-full bg-surface px-3 py-1 text-xs font-medium text-muted">
+            {beforeLabel}
+          </div>
+          <span className="text-xs text-muted">←</span>
+          <p className="text-xs text-muted">拖动分界线对比</p>
+          <span className="text-xs text-muted">→</span>
+          <div className="rounded-full bg-primary px-3 py-1 text-xs font-medium text-white">
+            {afterLabel}
+          </div>
+        </div>
+        <p className="text-xs text-muted">← → 键微调 · Home/End 跳两端</p>
+      </div>
+      {/* 滑杆画布 */}
       <div
         ref={frameRef}
-        className="relative h-full w-full overflow-hidden rounded-inherit"
+        className="relative h-[520px] overflow-hidden bg-surface cursor-ew-resize"
+        onPointerDown={handlePointerDown}
       >
-        {/* 底层：原图 */}
-        <img
+        {/* 底层：原图（高清优先，失败回退缩略图） */}
+        <FallbackImage
+          src={beforeSrc!}
+          fallback={beforeFallback}
           alt={beforeLabel}
           className="absolute inset-0 h-full w-full select-none object-contain"
-          draggable={false}
-          onDragStart={(e) => e.preventDefault()}
-          src={beforeSrc ?? undefined}
         />
-
-        {/* 顶层：处理后（用 clipPath 裁剪） */}
+        {/* 上层：处理后（裁切） */}
         <img
           alt={afterLabel}
           className="absolute inset-0 h-full w-full select-none object-contain"
           draggable={false}
           onDragStart={(e) => e.preventDefault()}
-          src={afterSrc ?? undefined}
+          src={afterSrc!}
           style={{ clipPath: `inset(0 ${100 - position * 100}% 0 0)` }}
         />
 
-        {/* 标签：原图 */}
-        <div className="absolute left-4 top-4 rounded-full bg-white/96 px-3 py-1 text-xs font-medium text-muted shadow-sm">
+        {/* 标签 */}
+        <div className="absolute left-4 top-4 rounded-full bg-black/40 px-3 py-1 text-xs font-medium text-white backdrop-blur-sm">
           {beforeLabel}
         </div>
-
-        {/* 标签：处理后 */}
-        <div className="absolute right-4 top-4 rounded-full bg-primary px-3 py-1 text-xs font-medium text-white shadow-sm">
+        <div className="absolute right-4 top-4 rounded-full bg-primary/90 px-3 py-1 text-xs font-medium text-white backdrop-blur-sm">
           {afterLabel}
         </div>
 
-        {/* 拖动区域 */}
-        <div
-          className="absolute inset-y-0 z-10 w-12 -translate-x-1/2 cursor-ew-resize touch-none"
-          style={{ left: `${position * 100}%` }}
-          onPointerDown={handlePointerDown}
-        />
-
-        {/* 分界线 */}
-        <div
-          className="pointer-events-none absolute inset-y-0 w-0.5 -translate-x-1/2 bg-white shadow-lg"
-          style={{ left: `${position * 100}%` }}
-        />
+        {/* 分割线 */}
+        <div className="pointer-events-none absolute inset-y-0" style={{ left: `${position * 100}%` }}>
+          <div className="absolute inset-y-0 left-0 w-0.5 -translate-x-1/2 bg-white shadow-[0_0_4px_rgba(0,0,0,0.3)]" />
+        </div>
 
         {/* 拖动手柄 */}
         <button
-          className="absolute top-1/2 z-20 flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-primary text-white shadow-xl transition-transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 touch-none"
+          ref={buttonRef}
+          className="absolute top-1/2 z-20 flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white text-primary shadow-lg transition-transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 touch-none"
           style={{ left: `${position * 100}%` }}
           type="button"
           onPointerDown={handlePointerDown}
           onKeyDown={handleKeyDown}
-          aria-label="拖动滑杆对比，使用左右箭头键调整"
+          aria-label="拖动滑杆，使用左右箭头键调整"
           aria-valuenow={Math.round(position * 100)}
           aria-valuemin={5}
           aria-valuemax={95}
         >
-          <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+          <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
             <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd"/>
           </svg>
-          <svg className="h-5 w-5 -rotate-180" fill="currentColor" viewBox="0 0 20 20">
+          <svg className="h-4 w-4 -rotate-180" fill="currentColor" viewBox="0 0 20 20">
             <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd"/>
           </svg>
         </button>
-
-        {/* 底部提示 */}
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-4 py-2 text-xs text-white backdrop-blur-sm">
-          拖动滑杆对比效果 · 键盘 ←→ 可微调
-        </div>
       </div>
-    </div>
+    </section>
   );
 }

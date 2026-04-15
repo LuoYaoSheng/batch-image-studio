@@ -15,12 +15,14 @@ export function PreviewScreen({
   selectedImage,
   previewTaskStateByImageId,
   beforeSrc,
+  beforeFallback,
   afterSrc,
   currentTemplateName,
   cleanupMethod,
   sizeHandlingMode,
   previewStatus,
   loadingMessage,
+  isPreviewLoading = false,
   canStartBatch,
   batchReadyHint,
   outputDir,
@@ -35,12 +37,14 @@ export function PreviewScreen({
   selectedImage: ImportedImage | null;
   previewTaskStateByImageId: Record<string, PreviewTaskState | undefined>;
   beforeSrc: string | null;
+  beforeFallback?: string | null;
   afterSrc: string | null;
   currentTemplateName: string;
   cleanupMethod: "blur" | "fill" | "crop";
   sizeHandlingMode: "relative" | "absolute" | "bottomRight";
   previewStatus: string;
   loadingMessage?: string;
+  isPreviewLoading?: boolean;
   canStartBatch: boolean;
   batchReadyHint: string;
   outputDir?: string;
@@ -84,7 +88,10 @@ export function PreviewScreen({
           <div className="rounded-[28px] border border-line bg-white px-5 py-4 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-ink">拖动滑杆对比效果，确认满意后批量处理</p>
+                <p className="text-sm font-medium text-ink">拖动分界线对比原图和处理效果</p>
+                <p className="mt-2 text-xs text-muted">
+                  {loadingMessage || "左边原图，右边处理后，拖动中间的分界线查看差异。"}
+                </p>
                 {outputDir && (
                   <div className="mt-3 flex items-center gap-2 rounded-[18px] bg-surface px-3 py-2">
                     <svg className="h-4 w-4 text-muted shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -109,13 +116,22 @@ export function PreviewScreen({
               <div className="flex flex-wrap gap-2 text-xs text-muted">
                 <span className="rounded-full bg-surface px-3 py-2">{currentTemplateName || "未命名"}</span>
                 <span className="rounded-full bg-surface px-3 py-2">{getCleanupMethodLabel(cleanupMethod)}</span>
-                <span className="rounded-full bg-surface px-3 py-2">{previewStatus}</span>
+                <span className="rounded-full bg-surface px-3 py-2">{getSizeHandlingModeLabel(sizeHandlingMode)}</span>
+                <span className={`rounded-full px-3 py-2 ${isPreviewLoading ? "bg-primary/10 text-primary font-medium animate-pulse" : "bg-surface"}`}>
+                  {previewStatus}
+                </span>
               </div>
             </div>
           </div>
 
           <div className="min-h-0">
-            <ComparisonSlider beforeSrc={beforeSrc} afterSrc={afterSrc} />
+            <ComparisonSlider
+              beforeSrc={beforeSrc}
+              beforeFallback={beforeFallback}
+              afterSrc={afterSrc}
+              isLoading={isPreviewLoading}
+              loadingMessage={loadingMessage}
+            />
           </div>
         </section>
       </div>

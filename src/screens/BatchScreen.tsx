@@ -46,6 +46,22 @@ export function BatchScreen({
 
   const { remaining: remainingTime, speed: processSpeed } = calculateEstimates();
 
+  // 预构建 sourcePath → entry 查找表，避免 N×M 的 find 操作
+  const successPathSet = isAllSuccess
+    ? null // 全部成功时不需要逐条匹配
+    : new Set(result?.entries.filter((e) => e.success).map((e) => e.sourcePath));
+  const failedPathMap = new Map(failedEntries.map((e) => [e.sourcePath, e]));
+
+  /** 获取单张图片的处理状态 */
+  function getImageStatus(image: ImportedImage): "success" | "failed" | "processing" | "pending" {
+    if (isAllSuccess) return "success";
+    const failed = failedPathMap.get(image.path);
+    if (failed) return "failed";
+    if (progress?.currentFile === image.path && isBatchRunning) return "processing";
+    if (successPathSet?.has(image.path)) return "success";
+    return "pending";
+  }
+
   return (
     <div className="grid min-h-[780px] grid-rows-[auto_minmax(0,1fr)_auto] gap-4">
       <section
@@ -68,7 +84,7 @@ export function BatchScreen({
                 {isAllSuccess ? "批量处理完成！" : progress ? "批量任务进行中" : result ? "批量任务已完成" : "等待开始批量任务"}
               </h3>
               {isAllSuccess ? (
-                <p className="mt-3 text-sm text-muted">全部处理完成，可以直接打开结果目录或返回首页。</p>
+                <p className="mt-3 text-sm text-muted">全部处理完成，可以直接打开结果目录或开始新任务。</p>
               ) : (
                 <p className="mt-3 text-sm text-muted">
                   {progress
@@ -171,18 +187,16 @@ export function BatchScreen({
 
           <div className="mt-5 max-h-[calc(100vh-390px)] space-y-3 overflow-y-auto pr-1">
             {importedImages.map((image) => {
-              const failed = failedEntries.find((entry) => entry.sourcePath === image.path);
-              const completed = result?.entries.find((entry) => entry.sourcePath === image.path && entry.success);
-              const isCurrent = progress?.currentFile === image.path;
+              const status = getImageStatus(image);
               return (
                 <div
                   key={image.id}
                   className={`rounded-[24px] border px-4 py-4 ${
-                    failed
+                    status === "failed"
                       ? "border-[#efc1c1] bg-[#fff5f5]"
-                      : isCurrent
+                      : status === "processing"
                         ? "border-primary bg-primary/6"
-                        : completed
+                        : status === "success"
                           ? "border-[#cde8d6] bg-[#f0faf4]"
                           : "border-line bg-surface"
                   }`}
@@ -190,10 +204,12 @@ export function BatchScreen({
                   <div className="flex items-center justify-between gap-4">
                     <p className="truncate text-sm font-medium text-ink">{image.name}</p>
                     <p className="text-xs text-muted">
-                      {failed ? "失败" : isCurrent ? "处理中" : completed ? "成功" : "待处理"}
+                      {status === "failed" ? "失败" : status === "processing" ? "处理中" : status === "success" ? "成功" : "待处理"}
                     </p>
                   </div>
-                  {failed?.error ? <p className="mt-2 text-xs text-[#9a2020]">{failed.error}</p> : null}
+                  {status === "failed" ? (
+                    <p className="mt-2 text-xs text-[#9a2020]">{failedPathMap.get(image.path)?.error ?? "未知错误"}</p>
+                  ) : null}
                 </div>
               );
             })}
@@ -217,24 +233,9 @@ export function BatchScreen({
               </div>
             ) : (
               <div className="mt-4 rounded-[20px] border border-[#cde8d6] bg-[#f0faf4] px-4 py-4 text-sm text-[#17603a]">
-                当前结果稳定，可以直接打开输出目录或返回首页继续下一批。
+                全部处理成功，可以打开输出目录查看结果，或清空工作区开始新任务。
               </div>
             )}
-          </div>
-
-          <div className="rounded-[28px] border border-line bg-white p-6 shadow-sm">
-            <p className="text-sm font-semibold text-ink">下一步建议</p>
-            <div className="mt-5 space-y-3 text-sm text-muted">
-              <div className="rounded-[24px] border border-line bg-surface px-4 py-4">
-                1. 先看失败数量和失败原因
-              </div>
-              <div className="rounded-[24px] border border-line bg-surface px-4 py-4">
-                2. 少量失败时优先只重试失败项
-              </div>
-              <div className="rounded-[24px] border border-line bg-surface px-4 py-4">
-                3. 如果整批失败风格一致，再切换模板重新处理
-              </div>
-            </div>
           </div>
         </aside>
       </section>
@@ -242,42 +243,55 @@ export function BatchScreen({
       <section className="rounded-[28px] border border-primary/20 bg-[linear-gradient(180deg,_rgba(0,95,184,0.05),_rgba(255,255,255,0.98))] px-5 py-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-primary-strong">Primary Action</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-primary-strong">Next Step</p>
             <p className="mt-2 text-sm font-medium text-ink">
-              {isBatchRunning ? "当前任务正在运行，建议先等待或取消任务。" : "先处理结果，再决定是否继续下一批。"}
+              {isAllSuccess
+                ? "全部处理完成！打开输出目录查看结果，或开始下一批任务。"
+                : isBatchRunning
+                  ? "当前任务正在运行，建议先等待或取消任务。"
+                  : "先处理结果，再决定是否继续下一批。"}
             </p>
             <p className="mt-1 text-xs text-muted">
               {failedEntries.length > 0
                 ? "有失败项时优先重试失败图片；全部成功时优先打开输出目录确认结果。"
-                : "没有失败项时，通常下一步就是打开输出目录查看结果。"}
+                : isAllSuccess
+                  ? "点击「打开输出目录」查看处理结果，或点击「开始新任务」清空工作区重新导入图片。"
+                  : "没有失败项时，通常下一步就是打开输出目录查看结果。"}
             </p>
           </div>
 
           <div className="flex items-center gap-3">
-            <button
-              className="rounded-2xl border border-[#efc1c1] bg-[#fff5f5] px-4 py-3 text-sm font-medium text-[#9a2020] disabled:opacity-60"
-              type="button"
-              disabled={!isBatchRunning}
-              onClick={onCancelBatch}
-            >
-              取消任务
-            </button>
-            <button
-              className="rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium disabled:opacity-60"
-              type="button"
-              disabled={failedEntries.length === 0}
-              onClick={onRetryFailedOnly}
-            >
-              仅重试失败项
-            </button>
-            <button
-              className="rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium disabled:opacity-60"
-              type="button"
-              disabled={!result?.outputDir}
-              onClick={onOpenOutputDir}
-            >
-              打开输出目录
-            </button>
+            {isBatchRunning ? (
+              <button
+                className="rounded-2xl border border-[#efc1c1] bg-[#fff5f5] px-4 py-3 text-sm font-medium text-[#9a2020]"
+                type="button"
+                onClick={onCancelBatch}
+              >
+                取消任务
+              </button>
+            ) : null}
+            {!isAllSuccess && failedEntries.length > 0 ? (
+              <button
+                className="rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium disabled:opacity-60"
+                type="button"
+                onClick={onRetryFailedOnly}
+              >
+                仅重试失败项
+              </button>
+            ) : null}
+            {result?.outputDir ? (
+              <button
+                className={`rounded-2xl px-4 py-3 text-sm font-medium ${
+                  isAllSuccess
+                    ? "border border-[#cde8d6] bg-[#f0faf4] text-[#2d7a4e] hover:bg-[#e5f5ec]"
+                    : "border border-line bg-white disabled:opacity-60"
+                }`}
+                type="button"
+                onClick={onOpenOutputDir}
+              >
+                打开输出目录
+              </button>
+            ) : null}
             {onSwitchTemplate && !isBatchRunning ? (
               <button
                 className="rounded-2xl border border-primary bg-white px-4 py-3 text-sm font-medium text-primary hover:bg-primary/6"
@@ -288,11 +302,11 @@ export function BatchScreen({
               </button>
             ) : null}
             <button
-              className="rounded-2xl bg-primary px-5 py-3 text-sm font-medium text-white"
+              className="rounded-2xl bg-primary px-5 py-3 text-sm font-medium text-white hover:bg-primary/90"
               type="button"
               onClick={onBackHome}
             >
-              返回首页
+              {isAllSuccess ? "开始新任务" : "返回首页"}
             </button>
           </div>
         </div>

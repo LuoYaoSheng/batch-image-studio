@@ -1,9 +1,11 @@
 import type { ReactNode } from "react";
-import { startTransition, useEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useImageImport } from "./hooks/useImageImport";
+import type { DragOverlayState as DragOverlayStateFromHook } from "./hooks/useImageImport";
 import {
   installModelPackage,
   openExternalUrl,
@@ -26,8 +28,13 @@ import { SettingsScreen } from "./screens/SettingsScreen";
 import { TemplateBuilderScreen } from "./screens/TemplateBuilderScreen";
 import { TemplatesScreen } from "./screens/TemplatesScreen";
 import { TemplatePickerDialog } from "./components/templates/TemplatePickerDialog";
+import { SettingsDialog } from "./components/dialogs/SettingsDialog";
+import { HistoryDialog } from "./components/dialogs/HistoryDialog";
+import { TemplatesDialog } from "./components/dialogs/TemplatesDialog";
+import { WorkspaceScreen } from "./screens/WorkspaceScreen";
 import { useWorkspaceStore } from "./store/workspace";
 import type {
+  AppScreen,
   BatchProgressEvent,
   BatchTaskEvent,
   BatchTaskStarted,
@@ -49,6 +56,7 @@ import type {
   PreviewTaskStarted,
   Region,
   SizeHandlingMode,
+  WorkflowStep,
 } from "./types";
 import "./styles.css";
 
@@ -97,6 +105,7 @@ type BatchRequest = {
 };
 
 type DragOverlayState = "idle" | "hover" | "importing";
+
 type PreviewTaskState = {
   taskId: string;
   stage: PreviewTaskEvent["stage"];
@@ -114,13 +123,6 @@ type DecisionDialogState = {
 type TemplatePickerState = {
   source: "home" | "builder" | "preview" | "batch";
 } | null;
-
-const supportedFilters = [
-  {
-    name: "Images",
-    extensions: ["png", "jpg", "jpeg", "webp"],
-  },
-];
 
 function buildPreviewSignature(params: {
   sourcePath: string;
@@ -168,10 +170,6 @@ function waitForIdlePeriod(timeout = 3000) {
 
     window.setTimeout(() => resolve(), Math.min(timeout, 1200));
   });
-}
-
-function normalizePaths(paths: string[]) {
-  return [...paths].sort().join("::");
 }
 
 function logUi(event: string, detail?: Record<string, unknown>) {
@@ -227,10 +225,34 @@ function getScreenMeta(currentScreen: ReturnType<typeof useWorkspaceStore.getSta
   }
 }
 
+// ── Feature Flag ──────────────────────────────────────────────────────────
+const USE_WORKSPACE = true;
+
+// ── Workflow step derivation ──────────────────────────────────────────────
+function getWorkflowStepTitle(step: WorkflowStep) {
+  switch (step) {
+    case "idle": return "Batch Image Studio";
+    case "select": return "调整处理位置";
+    case "preview": return "确认效果";
+    case "process": return "批量处理";
+  }
+}
+
+function deriveWorkflowStep(state: {
+  isBatchRunning: boolean;
+  lastBatchResult: { processedCount: number } | null;
+  currentScreen: string;
+  importedImages: { length: number };
+}): WorkflowStep {
+  if (state.isBatchRunning || state.lastBatchResult) return "process";
+  if (state.currentScreen === "preview") return "preview";
+  if (state.importedImages.length > 0) return "select";
+  return "idle";
+}
+
 export default function App() {
   const [bootstrapState, setBootstrapState] = useState<BootstrapState | null>(null);
   const [showStartupScreen, setShowStartupScreen] = useState(true);
-  const [dragOverlayState, setDragOverlayState] = useState<DragOverlayState>("idle");
   const [batchProgress, setBatchProgress] = useState<BatchProgressEvent | null>(null);
   const [batchStartedAt, setBatchStartedAt] = useState<number | null>(null);
   const [previewCacheMap, setPreviewCacheMap] = useState<Record<string, PreviewCacheEntry>>({});
@@ -243,6 +265,7 @@ export default function App() {
   const [isModelPackageDownloading, setIsModelPackageDownloading] = useState(false);
   const [decisionDialog, setDecisionDialog] = useState<DecisionDialogState>(null);
   const [templatePicker, setTemplatePicker] = useState<TemplatePickerState>(null);
+  const [activeDialog, setActiveDialog] = useState<"templates" | "history" | "settings" | null>(null);
   const activeModelPackageTaskIdRef = useRef<string | null>(null);
   const previewTaskContextByTaskIdRef = useRef<
     Record<string, { imageId: string; sourcePath: string; signature: string }>
@@ -253,10 +276,28 @@ export default function App() {
   const activeBatchTaskIdRef = useRef<string | null>(null);
   const activeBatchSignatureByPathRef = useRef<Record<string, string>>({});
   const selectedImageIdRef = useRef<string | null>(null);
-  const lastImportSignatureRef = useRef("");
-  const lastImportAtRef = useRef(0);
-  const dragSessionLockedRef = useRef(false);
   const modelWarmupAttemptedRef = useRef(false);
+
+  // ── Image import hook ──────────────────────────────────────────────────
+  const {
+    isImporting,
+    dragOverlayState,
+    importWithDialog,
+    importPaths,
+    startImportFlow,
+  } = useImageImport({
+    onBeforeReplaceImport: () => {
+      setBatchProgress(null);
+      setBatchStartedAt(null);
+      setProcessedCacheMap({});
+      setPreviewCacheMap({});
+      setPreviewTaskStateByImageId({});
+      previewTaskContextByTaskIdRef.current = {};
+    },
+    onNavigateToDestination: (destination) => {
+      setAutoPreviewOnEnter(destination === "preview");
+    },
+  });
 
   const {
     navigation,
@@ -277,7 +318,6 @@ export default function App() {
     outputDir,
     templates,
     history,
-    isImporting,
     isPreviewLoading,
     isBatchRunning,
     notification,
@@ -292,6 +332,7 @@ export default function App() {
     preferredModelSource,
     modelLoadProgress,
     setCurrentScreen,
+    setWorkflowStep,
     setPendingImportDestination,
     startNewTemplateSession,
     setCurrentTemplateName,
@@ -304,7 +345,6 @@ export default function App() {
     setOutputDir,
     updateRegion,
     resetRegionFromImage,
-    setImporting,
     setPreviewLoading,
     setBatchRunning,
     setNotification,
@@ -332,6 +372,26 @@ export default function App() {
   } = useWorkspaceStore();
 
   const currentScreen = navigation.currentScreen;
+  const workflowStep = USE_WORKSPACE
+    ? deriveWorkflowStep({
+        isBatchRunning,
+        lastBatchResult,
+        currentScreen,
+        importedImages,
+      })
+    : "idle" as WorkflowStep;
+
+  // 工作区模式下的统一导航函数：同步更新 workflowStep 和 currentScreen
+  function navigateToStep(step: WorkflowStep) {
+    setWorkflowStep(step);
+    const screenMap: Record<WorkflowStep, AppScreen> = {
+      idle: "home",
+      select: "builder",
+      preview: "preview",
+      process: "batch",
+    };
+    setCurrentScreen(screenMap[step]);
+  }
   const selectedImage = importedImages.find((item) => item.id === selectedImageId) ?? null;
   const selectedPreviewTaskState = selectedImage
     ? (previewTaskStateByImageId[selectedImage.id] ?? null)
@@ -400,8 +460,11 @@ export default function App() {
   }, [isPreviewLoading, isSelectedImageBusy, setPreviewLoading]);
 
   useEffect(() => {
-    document.title = `${currentScreenMeta.title} - 图片批量处理大师`;
-  }, [currentScreenMeta.title]);
+    const title = USE_WORKSPACE
+      ? `${getWorkflowStepTitle(workflowStep)} - 图片批量处理大师`
+      : `${currentScreenMeta.title} - 图片批量处理大师`;
+    document.title = title;
+  }, [currentScreenMeta.title, workflowStep]);
 
   useEffect(() => {
     if (!import.meta.env.DEV) {
@@ -866,58 +929,7 @@ export default function App() {
   ]);
 
   useEffect(() => {
-    if (!isTauriRuntime()) {
-      return;
-    }
-
-    let unlisten: (() => void) | undefined;
-
-    getCurrentWindow()
-      .onDragDropEvent(async (event) => {
-        if (event.payload.type === "over") {
-          if (dragSessionLockedRef.current || isImporting) {
-            return;
-          }
-          setDragOverlayState("hover");
-          return;
-        }
-
-        if (event.payload.type === "drop") {
-          dragSessionLockedRef.current = true;
-          setDragOverlayState("importing");
-          setImporting(true);
-          try {
-            await waitForUiCommit();
-            await importPaths(event.payload.paths);
-          } catch (error) {
-            setNotification({ kind: "error", message: `拖拽导入失败：${String(error)}` });
-          } finally {
-            setImporting(false);
-            setDragOverlayState("idle");
-          }
-          return;
-        }
-
-        dragSessionLockedRef.current = false;
-        setDragOverlayState("idle");
-      })
-      .then((fn) => {
-        unlisten = fn;
-      })
-      .catch(() => {
-        setNotification({
-          kind: "info",
-          message: "当前环境未启用窗口拖拽监听，请使用按钮导入。",
-        });
-      });
-
-    return () => {
-      unlisten?.();
-    };
-  }, [isImporting, setImporting, setNotification]);
-
-  useEffect(() => {
-    if (!autoPreviewOnEnter || currentScreen !== "preview") {
+    if (!autoPreviewOnEnter || (USE_WORKSPACE ? workflowStep !== "preview" : currentScreen !== "preview")) {
       return;
     }
 
@@ -937,106 +949,71 @@ export default function App() {
     autoPreviewOnEnter,
     currentPreviewSignature,
     currentScreen,
+    workflowStep,
     isSelectedImageBusy,
     previewCacheMap,
     processedCacheMap,
     selectedImage,
   ]);
 
-  async function importPaths(paths: string[], strategy: "replace" | "append" = "replace") {
-    const signature = normalizePaths(paths);
-    const now = Date.now();
-    if (
-      signature.length > 0 &&
-      signature === lastImportSignatureRef.current &&
-      now - lastImportAtRef.current < 1500
-    ) {
+  // ── 后台预热：在预览步骤为所有未缓存图片生成处理缓存 ──────────────
+  useEffect(() => {
+    const inPreview = USE_WORKSPACE ? workflowStep === "preview" : currentScreen === "preview";
+    if (!inPreview || !isModelLoaded || importedImages.length === 0) {
       return;
     }
 
-    lastImportSignatureRef.current = signature;
-    lastImportAtRef.current = now;
-    if (strategy === "replace") {
-      setBatchProgress(null);
-      setBatchStartedAt(null);
-      setProcessedCacheMap({});
-      setPreviewCacheMap({});
-      setPreviewTaskStateByImageId({});
-      previewTaskContextByTaskIdRef.current = {};
-    }
-    const summary = await invoke<ImportSummary>("import_paths", { paths });
-    const destination = useWorkspaceStore.getState().navigation.pendingImportDestination;
-
-    startTransition(() => {
-      if (strategy === "append") {
-        appendImportSummary(summary);
-      } else {
-        applyImportSummary(summary);
-      }
-
-      if (summary.items.length === 0) {
-        return;
-      }
-
-      setCurrentScreen(destination);
-      setAutoPreviewOnEnter(destination === "preview");
-    });
-  }
-
-  async function importWithDialog(mode: "files" | "folder", strategy: "replace" | "append" = "replace") {
-    if (!isTauriRuntime()) {
-      setNotification({
-        kind: "info",
-        message: "浏览器预览环境不支持系统文件对话框，请在 Tauri 桌面环境中验证导入流程。",
+    // 找出还没有缓存且没有正在处理的图片
+    const uncached = importedImages.filter((img) => {
+      const sig = buildPreviewSignature({
+        sourcePath: img.path,
+        region,
+        cleanupMethod,
+        sizeHandlingMode,
+        blurSigma,
+        fillColor,
       });
+      const hasCache = Boolean(previewCacheMap[sig] || processedCacheMap[sig]);
+      const isRunning = isPreviewTaskActive(previewTaskStateByImageId[img.id]?.stage);
+      return !hasCache && !isRunning;
+    });
+
+    if (uncached.length === 0) {
       return;
     }
 
-    logUi("import-dialog:open", { mode });
-    setImporting(true);
-
-    try {
-      await waitForUiCommit();
-      const selected = await open(
-        mode === "folder"
-          ? {
-              title: "选择图片目录",
-              directory: true,
-              multiple: false,
-              recursive: true,
-            }
-          : {
-              title: "选择图片文件",
-              multiple: true,
-              filters: supportedFilters,
-            },
-      );
-
-      if (!selected) {
-        return;
+    // 逐个后台处理，避免并发占用过多资源
+    let cancelled = false;
+    const warmup = async () => {
+      for (const img of uncached) {
+        if (cancelled) break;
+        try {
+          await startPreviewForImage(img, "batch");
+        } catch {
+          // 后台预热失败不中断流程
+        }
       }
+    };
+    void warmup();
 
-      const paths = Array.isArray(selected) ? selected : [selected];
-      await waitForUiCommit();
-      await importPaths(paths, strategy);
-    } catch (error) {
-      setNotification({ kind: "error", message: `导入失败：${String(error)}` });
-    } finally {
-      setImporting(false);
-    }
-  }
-
-  async function startImportFlow(
-    mode: "files" | "folder",
-    destination: "builder" | "preview",
-    strategy: "replace" | "append" = "replace",
-  ) {
-    setPendingImportDestination(destination);
-    if (destination === "builder" && strategy === "replace") {
-      startNewTemplateSession();
-    }
-    await importWithDialog(mode, strategy);
-  }
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    workflowStep,
+    currentScreen,
+    isModelLoaded,
+    importedImages,
+    region,
+    cleanupMethod,
+    sizeHandlingMode,
+    blurSigma,
+    fillColor,
+    previewCacheMap,
+    processedCacheMap,
+    previewTaskStateByImageId,
+  ]);
 
   async function chooseOutputDir() {
     if (!isTauriRuntime()) {
@@ -1390,7 +1367,13 @@ export default function App() {
       return;
     }
 
-    setCurrentScreen("batch");
+    // 启动新批次前清除旧结果，避免旧 entries 与当前图片列表不匹配
+    setLastBatchResult(null);
+    if (USE_WORKSPACE) {
+      navigateToStep("process");
+    } else {
+      setCurrentScreen("batch");
+    }
     setBatchRunning(true);
     setBatchStartedAt(Date.now());
     setBatchProgress({
@@ -1565,7 +1548,11 @@ export default function App() {
           tone: "neutral",
           onClick: () => {
             applyTemplate(templateId);
-            setCurrentScreen("builder");
+            if (USE_WORKSPACE) {
+              navigateToStep("select");
+            } else {
+              setCurrentScreen("builder");
+            }
             setDecisionDialog(null);
             setNotification({ kind: "success", message: "已应用新模板，请重新预览效果。" });
           },
@@ -1576,7 +1563,11 @@ export default function App() {
           onClick: () => {
             clearWorkspace();
             applyTemplate(templateId);
-            setCurrentScreen("builder");
+            if (USE_WORKSPACE) {
+              navigateToStep("select");
+            } else {
+              setCurrentScreen("builder");
+            }
             setDecisionDialog(null);
             setNotification({ kind: "success", message: "模板已应用，现在可以导入图片或调整参数。" });
           },
@@ -1586,14 +1577,22 @@ export default function App() {
     }
 
     applyTemplate(templateId);
-    setCurrentScreen("builder");
+    if (USE_WORKSPACE) {
+      navigateToStep("select");
+    } else {
+      setCurrentScreen("builder");
+    }
     setNotification({ kind: "success", message: "模板已应用，现在可以导入图片或调整参数。" });
   }
 
   function applyTemplateToCurrentTask(templateId: string) {
     setTemplatePicker(null);
     applyTemplate(templateId);
-    setCurrentScreen("builder");
+    if (USE_WORKSPACE) {
+      navigateToStep("select");
+    } else {
+      setCurrentScreen("builder");
+    }
     setNotification({ kind: "success", message: "已应用新模板，请重新预览效果。" });
   }
 
@@ -1601,13 +1600,21 @@ export default function App() {
     setTemplatePicker(null);
     clearWorkspace();
     applyTemplate(templateId);
-    setCurrentScreen("builder");
+    if (USE_WORKSPACE) {
+      navigateToStep("select");
+    } else {
+      setCurrentScreen("builder");
+    }
     setNotification({ kind: "success", message: "模板已应用，现在可以导入图片或调整参数。" });
   }
 
   function handleEditTemplate(templateId: string) {
     applyTemplate(templateId);
-    setCurrentScreen("builder");
+    if (USE_WORKSPACE) {
+      navigateToStep("select");
+    } else {
+      setCurrentScreen("builder");
+    }
   }
 
   async function handleReuseHistory(entry: HistoryEntry) {
@@ -1620,7 +1627,11 @@ export default function App() {
       kind: "info",
       message: "该历史记录没有绑定模板，将打开模板中心供你重新选择。",
     });
-    setCurrentScreen("templates");
+    if (USE_WORKSPACE) {
+      setActiveDialog("templates");
+    } else {
+      setCurrentScreen("templates");
+    }
   }
 
   function handleNotificationClose() {
@@ -1637,13 +1648,21 @@ export default function App() {
 
   function clearTaskAndGoHome() {
     clearWorkspace();
-    setCurrentScreen("home");
+    if (USE_WORKSPACE) {
+      navigateToStep("idle");
+    } else {
+      setCurrentScreen("home");
+    }
     setDecisionDialog(null);
   }
 
   function clearPreviewAndReturnToBuilder() {
     clearPreviewState();
-    setCurrentScreen("builder");
+    if (USE_WORKSPACE) {
+      navigateToStep("select");
+    } else {
+      setCurrentScreen("builder");
+    }
     setDecisionDialog(null);
     setNotification({ kind: "info", message: "已放弃当前预览，模板配置和图片仍然保留。" });
   }
@@ -1679,7 +1698,11 @@ export default function App() {
       setNotification({ kind: "info", message: "当前没有选区，请先框选处理区域。" });
       return;
     }
-    setCurrentScreen("preview");
+    if (USE_WORKSPACE) {
+      navigateToStep("preview");
+    } else {
+      setCurrentScreen("preview");
+    }
     setAutoPreviewOnEnter(true);
   }
 
@@ -1796,36 +1819,24 @@ export default function App() {
       </>
     ) : undefined;
 
-  let content = (
-    <HomeScreen
-      templates={templates}
-      history={history}
-      isImporting={isImporting}
-      hasCheckedModelStatus={hasCheckedModelStatus}
-      isModelAvailable={isModelAvailable}
-      isModelLoaded={isModelLoaded}
-      isModelLoading={isModelLoading}
-      isModelFailed={isModelFailed}
-      preferredModelSource={preferredModelSource}
-      modelLoadProgress={modelLoadProgress}
-      onImportFiles={() => void startImportFlow("files", "builder", "replace")}
-      onImportFolder={() => void startImportFlow("folder", "builder", "replace")}
-      onOpenTemplates={() => setTemplatePicker({ source: "home" })}
-      onUseTemplate={(id) => void handleUseTemplate(id)}
-      onOpenHistory={() => setCurrentScreen("history")}
-      onOpenModelDir={() => void handleOpenModelDir()}
-      onDownloadModel={() => void handleDownloadModel()}
-      onImportModelPackage={() => void handleImportModelPackage()}
-      onOpenOfficialModelInfo={() => void handleOpenOfficialModelInfo()}
-      onRetryModelLoad={async () => {
-        await recheckModelAvailability();
-      }}
-    />
-  );
+  // ── Content rendering ──────────────────────────────────────────────
+  let content: ReactNode;
 
-  if (currentScreen === "builder") {
+  if (USE_WORKSPACE) {
+    // 工作区模式：使用 WorkspaceScreen 根据 workflowStep 渲染
     content = (
-      <TemplateBuilderScreen
+      <WorkspaceScreen
+        workflowStep={workflowStep}
+        templates={templates}
+        history={history}
+        isImporting={isImporting}
+        hasCheckedModelStatus={hasCheckedModelStatus}
+        isModelAvailable={isModelAvailable}
+        isModelLoaded={isModelLoaded}
+        isModelLoading={isModelLoading}
+        isModelFailed={isModelFailed}
+        preferredModelSource={preferredModelSource}
+        modelLoadProgress={modelLoadProgress}
         importedImages={importedImages}
         selectedImage={selectedImage}
         selectedImageId={selectedImageId}
@@ -1839,12 +1850,29 @@ export default function App() {
         currentTemplateName={currentTemplateName}
         isTemplateDirty={isTemplateDirty}
         hasRegionSelection={hasRegionSelection}
-        previewReady={Boolean(preview)}
-        isPreviewBusy={isSelectedImageBusy}
+        preview={preview}
+        isSelectedImageBusy={isSelectedImageBusy}
         canSaveTemplate={canSaveTemplate}
         canOpenPreview={canOpenPreview}
-        nextActionLabel={preview ? "查看预览" : "生成预览"}
-        nextActionHint={builderNextActionHint}
+        builderNextActionHint={builderNextActionHint}
+        previewStatus={previewStatus}
+        previewCanStartBatch={previewCanStartBatch}
+        previewBatchReadyHint={previewBatchReadyHint}
+        batchProgress={batchProgress}
+        batchStartedAt={batchStartedAt}
+        lastBatchResult={lastBatchResult}
+        isBatchRunning={isBatchRunning}
+        onImportFiles={() => void startImportFlow("files", "builder", importedImages.length > 0 ? "append" : "replace")}
+        onImportFolder={() => void startImportFlow("folder", "builder", importedImages.length > 0 ? "append" : "replace")}
+        onUseTemplate={(id) => void handleUseTemplate(id)}
+        onOpenTemplates={() => setActiveDialog("templates")}
+        onOpenHistory={() => setActiveDialog("history")}
+        onOpenSettings={() => setActiveDialog("settings")}
+        onOpenModelDir={() => void handleOpenModelDir()}
+        onDownloadModel={() => void handleDownloadModel()}
+        onImportModelPackage={() => void handleImportModelPackage()}
+        onOpenOfficialModelInfo={() => void handleOpenOfficialModelInfo()}
+        onRetryModelLoad={async () => { await recheckModelAvailability(); }}
         onSelectImage={selectImage}
         onUpdateRegion={updateRegion}
         onSetCleanupMethod={setCleanupMethod}
@@ -1863,12 +1891,6 @@ export default function App() {
           resetCurrentRegionSettings();
           setNotification({ kind: "success", message: "当前区域设置已恢复默认。" });
         }}
-        onImportFiles={() =>
-          void startImportFlow("files", "builder", importedImages.length > 0 ? "append" : "replace")
-        }
-        onImportFolder={() =>
-          void startImportFlow("folder", "builder", importedImages.length > 0 ? "append" : "replace")
-        }
         onClearWorkspace={() =>
           setDecisionDialog({
             title: "清空当前任务？",
@@ -1887,94 +1909,224 @@ export default function App() {
         }
         onRemoveSelectedImage={handleRemoveSelectedImage}
         onRemoveImage={handleRemoveImage}
-        onOpenTemplates={() => setTemplatePicker({ source: "builder" })}
         onSaveTemplate={saveCurrentTemplate}
         onOpenPreview={handlePreviewEntry}
-      />
-    );
-  } else if (currentScreen === "preview") {
-    content = (
-      <PreviewScreen
-        importedImages={importedImages}
-        selectedImageId={selectedImageId}
-        selectedImage={selectedImage}
-        previewTaskStateByImageId={previewTaskStateByImageId}
-        beforeSrc={selectedImage?.previewDataUrl ?? null}
-        afterSrc={processedPreviewDisplaySrc}
-        currentTemplateName={currentTemplateName}
-        cleanupMethod={cleanupMethod}
-        sizeHandlingMode={sizeHandlingMode}
-        previewStatus={previewStatus}
-        loadingMessage={selectedPreviewTaskState?.message}
-        canStartBatch={previewCanStartBatch}
-        batchReadyHint={previewBatchReadyHint}
-        outputDir={outputDir || undefined}
-        onSelectImage={handlePreviewSelectImage}
-        onOpenTemplates={() => setTemplatePicker({ source: "preview" })}
         onStartBatch={() => void runBatch()}
-        onBackToBuilder={() => setCurrentScreen("builder")}
-        onChangeOutputDir={() => void chooseOutputDir()}
-      />
-    );
-  } else if (currentScreen === "batch") {
-    content = (
-      <BatchScreen
-        importedImages={importedImages}
-        progress={batchProgress}
-        startedAt={batchStartedAt}
-        result={lastBatchResult}
+        onBackToBuilder={() => {
+          clearPreviewState();
+          navigateToStep("select");
+          setNotification({ kind: "info", message: "已返回调整模式。" });
+        }}
+        onBackHome={clearTaskAndGoHome}
         onRetryFailedOnly={() => void retryFailedOnly()}
-        onBackHome={() => setCurrentScreen("home")}
         onOpenOutputDir={() => void openOutputPath(lastBatchResult?.outputDir)}
         onCancelBatch={() => void cancelActiveBatchTask()}
-        isBatchRunning={isBatchRunning}
         onSwitchTemplate={() => setTemplatePicker({ source: "batch" })}
+        onPreviewSelectImage={handlePreviewSelectImage}
       />
     );
-  } else if (currentScreen === "templates") {
+  } else {
+    // 传统侧边栏模式：保持原有渲染逻辑
+    if (currentScreen === "home") {
     content = (
-      <TemplatesScreen
+      <HomeScreen
         templates={templates}
-        onApply={(id) => void handleUseTemplate(id)}
-        onEdit={handleEditTemplate}
-        onCopy={(id) => {
-          duplicateTemplate(id);
-          setNotification({ kind: "success", message: "模板已复制，可在模板列表中找到。" });
-        }}
-        onDelete={(id) => {
-          deleteTemplate(id);
-          setNotification({ kind: "success", message: "模板已删除。" });
-        }}
-        onCreateNew={() => {
-          startNewTemplateSession();
-          clearWorkspace();
-          setCurrentScreen("builder");
-        }}
-      />
-    );
-  } else if (currentScreen === "history") {
-    content = (
-      <HistoryScreen
         history={history}
-        onReuse={(entry) => void handleReuseHistory(entry)}
-        onOpenOutputDir={(entry) => void openOutputPath(entry.outputDir)}
-      />
-    );
-  } else if (currentScreen === "settings") {
-    content = (
-      <SettingsScreen
-        appSettings={appSettings}
+        isImporting={isImporting}
+        hasCheckedModelStatus={hasCheckedModelStatus}
         isModelAvailable={isModelAvailable}
-        modelInstallDir={modelInstallDir}
+        isModelLoaded={isModelLoaded}
+        isModelLoading={isModelLoading}
+        isModelFailed={isModelFailed}
         preferredModelSource={preferredModelSource}
-        onUpdateSettings={updateAppSettings}
-        onChooseDefaultOutputDir={() => void chooseDefaultOutputDir()}
+        modelLoadProgress={modelLoadProgress}
+        onImportFiles={() => void startImportFlow("files", "builder", "replace")}
+        onImportFolder={() => void startImportFlow("folder", "builder", "replace")}
+        onOpenTemplates={() => setTemplatePicker({ source: "home" })}
+        onUseTemplate={(id) => void handleUseTemplate(id)}
+        onOpenHistory={() => setCurrentScreen("history")}
         onOpenModelDir={() => void handleOpenModelDir()}
-        onDownloadModel={(sourceId) => void handleDownloadModel(sourceId)}
+        onDownloadModel={() => void handleDownloadModel()}
         onImportModelPackage={() => void handleImportModelPackage()}
         onOpenOfficialModelInfo={() => void handleOpenOfficialModelInfo()}
+        onRetryModelLoad={async () => {
+          await recheckModelAvailability();
+        }}
       />
     );
+  } else if (currentScreen === "builder") {
+    content = (
+        <TemplateBuilderScreen
+          importedImages={importedImages}
+          selectedImage={selectedImage}
+          selectedImageId={selectedImageId}
+          previewTaskStateByImageId={previewTaskStateByImageId}
+          region={region}
+          cleanupMethod={cleanupMethod}
+          sizeHandlingMode={sizeHandlingMode}
+          blurSigma={blurSigma}
+          fillColor={fillColor}
+          outputDir={outputDir}
+          currentTemplateName={currentTemplateName}
+          isTemplateDirty={isTemplateDirty}
+          hasRegionSelection={hasRegionSelection}
+          previewReady={Boolean(preview)}
+          isPreviewBusy={isSelectedImageBusy}
+          canSaveTemplate={canSaveTemplate}
+          canOpenPreview={canOpenPreview}
+          nextActionLabel={preview ? "查看预览" : "生成预览"}
+          nextActionHint={builderNextActionHint}
+          onSelectImage={selectImage}
+          onUpdateRegion={updateRegion}
+          onSetCleanupMethod={setCleanupMethod}
+          onSetSizeHandlingMode={setSizeHandlingMode}
+          onSetBlurSigma={setBlurSigma}
+          onSetFillColor={setFillColor}
+          onSetOutputDir={setOutputDir}
+          onChooseOutputDir={() => void chooseOutputDir()}
+          onSetCurrentTemplateName={setCurrentTemplateName}
+          onResetRegion={() => resetRegionFromImage(selectedImage)}
+          onClearRegionSelection={() => {
+            clearRegionSelection();
+            setNotification({ kind: "info", message: "当前没有选区，请重新框选。" });
+          }}
+          onResetCurrentRegionSettings={() => {
+            resetCurrentRegionSettings();
+            setNotification({ kind: "success", message: "当前区域设置已恢复默认。" });
+          }}
+          onImportFiles={() =>
+            void startImportFlow("files", "builder", importedImages.length > 0 ? "append" : "replace")
+          }
+          onImportFolder={() =>
+            void startImportFlow("folder", "builder", importedImages.length > 0 ? "append" : "replace")
+          }
+          onClearWorkspace={() =>
+            setDecisionDialog({
+              title: "清空当前任务？",
+              description: "清空后将移除当前导入的图片、预览结果和未保存的编辑内容，并返回首页。",
+              cancelAction: {
+                label: "取消",
+                tone: "neutral",
+                onClick: closeDecisionDialog,
+              },
+              primaryAction: {
+                label: "清空并返回首页",
+                tone: "danger",
+                onClick: clearTaskAndGoHome,
+              },
+            })
+          }
+          onRemoveSelectedImage={handleRemoveSelectedImage}
+          onRemoveImage={handleRemoveImage}
+          onOpenTemplates={() => setTemplatePicker({ source: "builder" })}
+          onSaveTemplate={saveCurrentTemplate}
+          onOpenPreview={handlePreviewEntry}
+        />
+      );
+    } else if (currentScreen === "preview") {
+      content = (
+        <PreviewScreen
+          importedImages={importedImages}
+          selectedImageId={selectedImageId}
+          selectedImage={selectedImage}
+          previewTaskStateByImageId={previewTaskStateByImageId}
+          beforeSrc={selectedImage?.thumbnailDataUrl ?? null}
+          afterSrc={processedPreviewDisplaySrc}
+          currentTemplateName={currentTemplateName}
+          cleanupMethod={cleanupMethod}
+          sizeHandlingMode={sizeHandlingMode}
+          previewStatus={previewStatus}
+          loadingMessage={selectedPreviewTaskState?.message}
+          canStartBatch={previewCanStartBatch}
+          batchReadyHint={previewBatchReadyHint}
+          onSelectImage={handlePreviewSelectImage}
+          onOpenTemplates={() => setTemplatePicker({ source: "preview" })}
+          onStartBatch={() => void runBatch()}
+          onBackToBuilder={() => setCurrentScreen("builder")}
+        />
+      );
+    } else if (currentScreen === "batch") {
+      content = (
+        <BatchScreen
+          importedImages={importedImages}
+          progress={batchProgress}
+          startedAt={batchStartedAt}
+          result={lastBatchResult}
+          onRetryFailedOnly={() => void retryFailedOnly()}
+          onBackHome={() => setCurrentScreen("home")}
+          onOpenOutputDir={() => void openOutputPath(lastBatchResult?.outputDir)}
+          onCancelBatch={() => void cancelActiveBatchTask()}
+          isBatchRunning={isBatchRunning}
+          onSwitchTemplate={() => setTemplatePicker({ source: "batch" })}
+        />
+      );
+    } else if (currentScreen === "templates") {
+      content = (
+        <TemplatesScreen
+          templates={templates}
+          onApply={(id) => void handleUseTemplate(id)}
+          onEdit={handleEditTemplate}
+          onDelete={(id) => {
+            deleteTemplate(id);
+            setNotification({ kind: "success", message: "模板已删除。" });
+          }}
+          onCreateNew={() => {
+            startNewTemplateSession();
+            clearWorkspace();
+            setCurrentScreen("builder");
+          }}
+        />
+      );
+    } else if (currentScreen === "history") {
+      content = (
+        <HistoryScreen
+          history={history}
+          onReuse={(entry) => void handleReuseHistory(entry)}
+          onOpenOutputDir={(entry) => void openOutputPath(entry.outputDir)}
+        />
+      );
+    } else if (currentScreen === "settings") {
+      content = (
+        <SettingsScreen
+          appSettings={appSettings}
+          isModelAvailable={isModelAvailable}
+          modelInstallDir={modelInstallDir}
+          preferredModelSource={preferredModelSource}
+          onUpdateSettings={updateAppSettings}
+          onChooseDefaultOutputDir={() => void chooseDefaultOutputDir()}
+          onOpenModelDir={() => void handleOpenModelDir()}
+          onDownloadModel={(sourceId) => void handleDownloadModel(sourceId)}
+          onImportModelPackage={() => void handleImportModelPackage()}
+          onOpenOfficialModelInfo={() => void handleOpenOfficialModelInfo()}
+        />
+      );
+    }
+  }
+
+  // ── Step click handler (workspace mode) ──────────────────────────────
+  function handleStepClick(step: WorkflowStep) {
+    // 只允许回退到之前的步骤
+    const order: WorkflowStep[] = ["idle", "select", "preview", "process"];
+    const currentIdx = order.indexOf(workflowStep);
+    const targetIdx = order.indexOf(step);
+    if (targetIdx >= currentIdx) return;
+
+    if (step === "idle") {
+      if (hasUnsavedTask) {
+        setDecisionDialog({
+          title: "离开当前任务？",
+          description: "当前任务还有未保存内容。你可以继续编辑，或清空当前任务后返回。",
+          cancelAction: { label: "继续编辑", tone: "neutral", onClick: closeDecisionDialog },
+          primaryAction: { label: "清空并返回首页", tone: "danger", onClick: clearTaskAndGoHome },
+        });
+      } else {
+        clearWorkspace();
+        navigateToStep("idle");
+      }
+    } else if (step === "select") {
+      clearPreviewState();
+      navigateToStep("select");
+    }
   }
 
   return (
@@ -1998,7 +2150,7 @@ export default function App() {
         </div>
       ) : null}
 
-      {(dragOverlayState === "importing" || isImporting) && currentScreen !== "home" ? (
+      {(dragOverlayState === "importing" || isImporting) && (USE_WORKSPACE || currentScreen !== "home") ? (
         <div className="pointer-events-none fixed inset-0 z-40 flex items-start justify-center bg-white/12 pt-10">
           <div className="rounded-2xl border border-primary/20 bg-white/96 px-5 py-3 shadow-ambient backdrop-blur">
             <div className="flex items-center gap-3">
@@ -2015,9 +2167,10 @@ export default function App() {
       <AppShell
         currentScreen={currentScreen}
         onNavigate={navigateWithGuard}
-        title={currentScreenMeta.title}
+        title={USE_WORKSPACE ? getWorkflowStepTitle(workflowStep) : currentScreenMeta.title}
         toasts={toasts}
         onRemoveToast={removeToast}
+        onImportFiles={() => void startImportFlow("files", "builder", importedImages.length > 0 ? "append" : "replace")}
         onShortcutSaveTemplate={() => {
           // 只在 builder 页面允许保存模板
           if (currentScreen === "builder") {
@@ -2037,13 +2190,77 @@ export default function App() {
           }
         }}
         subtitle={
-          bootstrapState ? `${currentScreenMeta.subtitle} · ${bootstrapState.platform} · ${bootstrapState.appVersion}` : currentScreenMeta.subtitle
+          USE_WORKSPACE
+            ? (bootstrapState ? `${bootstrapState.platform} · ${bootstrapState.appVersion}` : undefined)
+            : (bootstrapState ? `${currentScreenMeta.subtitle} · ${bootstrapState.platform} · ${bootstrapState.appVersion}` : currentScreenMeta.subtitle)
         }
-        actions={shellActions}
+        actions={USE_WORKSPACE ? undefined : shellActions}
         notification={notificationNode}
+        variant={USE_WORKSPACE ? "workspace" : "sidebar"}
+        workflowStep={workflowStep}
+        onStepClick={handleStepClick}
+        onOpenTemplates={() => setActiveDialog("templates")}
+        onOpenHistory={() => setActiveDialog("history")}
+        onOpenSettings={() => setActiveDialog("settings")}
       >
         {content}
       </AppShell>
+
+      {/* 工作区模式对话框 */}
+      {USE_WORKSPACE && activeDialog === "templates" ? (
+        <TemplatesDialog
+          isOpen={true}
+          onClose={() => setActiveDialog(null)}
+          templates={templates}
+          onApply={(id) => {
+            void handleUseTemplate(id);
+            setActiveDialog(null);
+          }}
+          onEdit={(id) => {
+            handleEditTemplate(id);
+            setActiveDialog(null);
+          }}
+          onDelete={(id) => {
+            deleteTemplate(id);
+            setNotification({ kind: "success", message: "模板已删除。" });
+          }}
+          onCreateNew={() => {
+            startNewTemplateSession();
+            clearWorkspace();
+            navigateToStep("select");
+            setActiveDialog(null);
+          }}
+        />
+      ) : null}
+      {USE_WORKSPACE && activeDialog === "history" ? (
+        <HistoryDialog
+          isOpen={true}
+          onClose={() => setActiveDialog(null)}
+          history={history}
+          onReuse={(entry) => {
+            void handleReuseHistory(entry);
+            setActiveDialog(null);
+          }}
+          onOpenOutputDir={(entry) => void openOutputPath(entry.outputDir)}
+        />
+      ) : null}
+      {USE_WORKSPACE && activeDialog === "settings" ? (
+        <SettingsDialog
+          isOpen={true}
+          onClose={() => setActiveDialog(null)}
+          appSettings={appSettings}
+          isModelAvailable={isModelAvailable}
+          modelInstallDir={modelInstallDir}
+          preferredModelSource={preferredModelSource}
+          onUpdateSettings={updateAppSettings}
+          onChooseDefaultOutputDir={() => void chooseDefaultOutputDir()}
+          onOpenModelDir={() => void handleOpenModelDir()}
+          onDownloadModel={(sourceId) => void handleDownloadModel(sourceId)}
+          onImportModelPackage={() => void handleImportModelPackage()}
+          onOpenOfficialModelInfo={() => void handleOpenOfficialModelInfo()}
+        />
+      ) : null}
+
       {decisionDialog ? (
         <DecisionDialog
           title={decisionDialog.title}
@@ -2068,7 +2285,11 @@ export default function App() {
           onClearThenApply={(id) => clearTaskThenApplyTemplate(id)}
           onManageTemplates={() => {
             setTemplatePicker(null);
-            setCurrentScreen("templates");
+            if (USE_WORKSPACE) {
+              setActiveDialog("templates");
+            } else {
+              setCurrentScreen("templates");
+            }
           }}
           onClose={closeTemplatePicker}
         />

@@ -130,3 +130,15 @@ button:active:not(:disabled) {
     background-position: 200% 0;
   }
 }
+
+/* 空状态拖拽区呼吸动画 */
+@keyframes breathe {
+  0%, 100% {
+    border-color: rgba(0, 72, 141, 0.2);
+    box-shadow: 0 0 0 0 rgba(0, 72, 141, 0);
+  }
+  50% {
+    border-color: rgba(0, 72, 141, 0.4);
+    box-shadow: 0 0 20px 4px rgba(0, 72, 141, 0.06);
+  }
+}

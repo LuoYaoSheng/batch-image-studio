@@ -27,6 +27,7 @@ import type {
   Template,
   Toast,
   ToastKind,
+  WorkflowStep,
 } from "../types";
 const DEFAULT_BLUR_SIGMA = 10;
 const DEFAULT_FILL_COLOR = "#f7f9fc";
@@ -58,6 +59,7 @@ function computeDoubaoRegion(width: number, height: number): Region {
 const DEFAULT_REGION = computeDoubaoRegion(2048, 2048);
 
 type WorkspaceState = {
+  workflowStep: WorkflowStep;
   navigation: {
     currentScreen: AppScreen;
     builderMode: "new" | "edit";
@@ -96,6 +98,7 @@ type WorkspaceState = {
   preferredModelSource: "local" | "bundled" | null;
   modelLoadProgress: number;
   setCurrentScreen: (screen: AppScreen) => void;
+  setWorkflowStep: (step: WorkflowStep) => void;
   setBuilderMode: (mode: "new" | "edit") => void;
   setPendingImportDestination: (screen: ImportDestination) => void;
   startNewTemplateSession: () => void;
@@ -157,6 +160,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
   }
 
   return {
+    workflowStep: "idle" as WorkflowStep,
     navigation: {
       currentScreen: "home",
       builderMode: "new",
@@ -201,6 +205,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           currentScreen,
         },
       })),
+    setWorkflowStep: (workflowStep) => set({ workflowStep }),
     setBuilderMode: (builderMode) =>
       set((state) => ({
         navigation: {
@@ -374,6 +379,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       })),
     appendImportSummary: (summary) =>
       set((state) => {
+        const beforeCount = state.importedImages.length;
         const currentByPath = new Map(state.importedImages.map((item) => [item.path, item]));
         for (const item of summary.items) {
           currentByPath.set(item.path, item);
@@ -381,6 +387,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
         const nextImages = Array.from(currentByPath.values());
         const selectedStillExists = nextImages.some((item) => item.id === state.selectedImageId);
+        const actuallyAdded = nextImages.length - beforeCount;
+        const duplicatesSkipped = summary.items.length - actuallyAdded;
+
+        let message: string;
+        if (summary.items.length === 0) {
+          message = "没有追加到新的可处理图片。";
+        } else if (duplicatesSkipped > 0) {
+          message = `已追加 ${actuallyAdded} 张新图片（跳过 ${duplicatesSkipped} 张重复），当前共 ${nextImages.length} 张。`;
+        } else {
+          message = `已追加 ${summary.items.length} 张图片，当前任务共 ${nextImages.length} 张。`;
+        }
 
         return {
           importedImages: nextImages,
@@ -388,11 +405,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           selectedImageId: selectedStillExists ? state.selectedImageId : (nextImages[0]?.id ?? null),
           notification:
             summary.items.length > 0
-              ? {
-                  kind: "success",
-                  message: `已追加 ${summary.items.length} 张图片，当前任务共 ${nextImages.length} 张。`,
-                }
-              : { kind: "info", message: "没有追加到新的可处理图片。" },
+              ? { kind: "success", message }
+              : { kind: "info", message },
         };
       }),
     selectImage: (selectedImageId) =>
@@ -402,6 +416,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       }),
     removeImage: (id) =>
       set((state) => {
+        const removed = state.importedImages.find((item) => item.id === id);
+        if (!removed) return state;
         const remaining = state.importedImages.filter((item) => item.id !== id);
         const nextSelected =
           state.selectedImageId === id ? (remaining[0]?.id ?? null) : state.selectedImageId;
@@ -413,7 +429,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           lastBatchResult: null,
           notification:
             remaining.length > 0
-              ? { kind: "info", message: `已移除 1 张图片，当前剩余 ${remaining.length} 张。` }
+              ? { kind: "info", message: `已移除「${removed?.name ?? "图片"}」，当前剩余 ${remaining.length} 张。` }
             : { kind: "info", message: "当前任务已清空，可重新导入图片或文件夹。" },
         };
       }),

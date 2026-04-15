@@ -800,7 +800,7 @@ fn encode_thumbnail_data_url(image: &DynamicImage) -> Result<String> {
     return encode_png_data_url(image);
   }
 
-  encode_jpeg_data_url(image, 76)
+  encode_jpeg_data_url(image, 85)
 }
 
 fn load_image(path: &Path) -> Result<DynamicImage> {
@@ -2456,8 +2456,8 @@ fn import_paths(paths: Vec<String>) -> Result<ImportSummary, String> {
     match load_image(&path) {
       Ok(image) => {
         let metadata = fs::metadata(&path).map_err(|err| err.to_string())?;
-        // 缩略图：用于列表显示，小尺寸
-        let thumbnail = image.thumbnail(160, 160);
+        // 缩略图：用于列表显示，高质量以支持对比预览
+        let thumbnail = image.thumbnail(640, 640);
         let thumbnail_data_url =
           encode_thumbnail_data_url(&thumbnail).map_err(|err| err.to_string())?;
 

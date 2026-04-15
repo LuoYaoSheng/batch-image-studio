@@ -8,7 +8,7 @@ type ShortcutGroup = {
   }>;
 };
 
-const shortcutGroups: ShortcutGroup[] = [
+const sidebarGroups: ShortcutGroup[] = [
   {
     title: "导航",
     shortcuts: [
@@ -23,6 +23,7 @@ const shortcutGroups: ShortcutGroup[] = [
     title: "操作",
     shortcuts: [
       { keys: ["⌘", "S"], description: "保存模板" },
+      { keys: ["⌘", "O"], description: "导入图片" },
       { keys: ["⌘", "/"], description: "显示快捷键帮助" },
       { keys: ["Esc"], description: "关闭对话框" },
     ],
@@ -48,16 +49,71 @@ const shortcutGroups: ShortcutGroup[] = [
       { keys: ["Shift", "方向键"], description: "调整大小" },
     ],
   },
+  {
+    title: "样图列表",
+    shortcuts: [
+      { keys: ["↑", "↓"], description: "切换样图" },
+      { keys: ["Delete", "Backspace"], description: "移除当前样图" },
+    ],
+  },
+];
+
+const workspaceGroups: ShortcutGroup[] = [
+  {
+    title: "步骤导航",
+    shortcuts: [
+      { keys: ["⌘", "1"], description: "回到首页" },
+      { keys: ["⌘", "2"], description: "调整处理位置" },
+      { keys: ["⌘", "3"], description: "效果预览" },
+      { keys: ["⌘", "4"], description: "批量处理" },
+    ],
+  },
+  {
+    title: "操作",
+    shortcuts: [
+      { keys: ["⌘", "O"], description: "导入图片" },
+      { keys: ["⌘", "T"], description: "常用做法" },
+      { keys: ["⌘", "H"], description: "处理记录" },
+      { keys: ["⌘", ","], description: "设置" },
+      { keys: ["⌘", "/"], description: "显示快捷键帮助" },
+      { keys: ["Esc"], description: "关闭对话框" },
+    ],
+  },
+  {
+    title: "预览页",
+    shortcuts: [
+      { keys: ["←", "→"], description: "调整对比滑块" },
+      { keys: ["Home", "End"], description: "跳到滑块两端" },
+    ],
+  },
+  {
+    title: "区域选择",
+    shortcuts: [
+      { keys: ["↑", "↓", "←", "→"], description: "移动选区" },
+      { keys: ["Shift", "方向键"], description: "调整大小" },
+    ],
+  },
+  {
+    title: "样图列表",
+    shortcuts: [
+      { keys: ["↑", "↓"], description: "切换样图" },
+      { keys: ["Delete", "Backspace"], description: "移除当前样图" },
+    ],
+  },
 ];
 
 export function KeyboardShortcutsDialog({
   isOpen,
   onClose,
+  variant = "sidebar",
 }: {
   isOpen: boolean;
   onClose: () => void;
+  variant?: "sidebar" | "workspace";
 }) {
   if (!isOpen) return null;
+
+  const shortcutGroups = variant === "workspace" ? workspaceGroups : sidebarGroups;
 
   return (
     <div

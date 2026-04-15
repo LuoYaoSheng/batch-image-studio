@@ -1,4 +1,5 @@
 import type { CleanupMethod, ImportedImage, PreviewTaskEvent, Region, SizeHandlingMode } from "../types";
+import { useEffect } from "react";
 import { ImageSampleList } from "../components/builder/ImageSampleList";
 import { PreviewCanvasCard } from "../components/builder/PreviewCanvasCard";
 import { RegionInputs } from "../components/builder/RegionInputs";
@@ -91,6 +92,63 @@ export function TemplateBuilderScreen({
   onSaveTemplate: () => void;
   onOpenPreview: () => void;
 }) {
+  // ── Keyboard navigation ────────────────────────────────────────────────
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Skip when user is typing in an input field
+      const target = event.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+
+      // [Patch #1] Skip arrow keys when focus is inside the region overlay
+      // (PreviewCanvasCard uses arrow keys for region adjustment)
+      if ((event.key === "ArrowUp" || event.key === "ArrowDown" || event.key === "ArrowLeft" || event.key === "ArrowRight") && target.closest("[data-region-overlay]")) {
+        return;
+      }
+
+      if (importedImages.length === 0) {
+        return;
+      }
+
+      // Arrow keys: navigate between images
+      if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+        event.preventDefault();
+        // [Patch #2] Use the same sort order as ImageSampleList for visual consistency
+        const sorted = importedImages.length > 1
+          ? [...importedImages].sort((a, b) => a.name.localeCompare(b.name))
+          : importedImages;
+        const currentIndex = sorted.findIndex((img) => img.id === selectedImageId);
+        if (currentIndex === -1) {
+          onSelectImage(sorted[0].id);
+          return;
+        }
+        const nextIndex =
+          event.key === "ArrowDown"
+            ? Math.min(currentIndex + 1, sorted.length - 1)
+            : Math.max(currentIndex - 1, 0);
+        if (nextIndex !== currentIndex) {
+          onSelectImage(sorted[nextIndex].id);
+        }
+        return;
+      }
+
+      // Delete/Backspace: remove selected image
+      if ((event.key === "Delete" || event.key === "Backspace") && selectedImageId) {
+        event.preventDefault();
+        onRemoveImage(selectedImageId);
+        return;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [importedImages, selectedImageId, onSelectImage, onRemoveImage]);
+
   return (
     <div className="grid h-full min-h-0 gap-4">
       <div className="grid min-h-0 grid-cols-[212px_minmax(0,1fr)_264px] gap-4">

@@ -8,6 +8,8 @@ export type AppScreen =
   | "templates"
   | "history"
   | "settings";
+
+export type WorkflowStep = "idle" | "select" | "preview" | "process";
 export type ImportDestination = "builder" | "preview";
 export type OutputFormat = "png" | "jpg" | "webp";
 
