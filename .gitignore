@@ -18,7 +18,9 @@ samples/
 .claude/
 _bmad/
 _bmad-output/
-docs/
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+docs/node_modules/
 *.md.bak
 
 # Test artifacts
